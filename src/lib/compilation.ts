@@ -8,9 +8,9 @@ export type ExcerptMetadata = {
 export type AITranslator = 879 | 890 | 893 | 895;
 
 export type AITranslation = {
-  text: string;
-  translator: AITranslator;
-  lastUpdatedAt: number;
+  text?: string;
+  translator?: AITranslator;
+  lastUpdatedAt?: number;
 };
 
 export type IndexedExcerpt = {

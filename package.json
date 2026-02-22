@@ -1,47 +1,69 @@
 {
+    "author": "Ragaeeb Haq (https://github.com/ragaeeb)",
+    "bugs": {
+        "url": "https://github.com/ragaeeb/rupture-baby/issues"
+    },
     "dependencies": {
+        "bitaboom": "^2.5.0",
         "next": "16.1.6",
         "react": "19.2.4",
-        "react-dom": "19.2.4"
+        "react-dom": "19.2.4",
+        "stream-json": "^1.9.1",
+        "wobble-bibble": "^1.4.7"
     },
+    "description": "Next.js translation coordination server for Arabic excerpts and browser extension clients.",
     "devDependencies": {
-        "@biomejs/biome": "2.3.15",
-        "@happy-dom/global-registrator": "^20.6.1",
+        "@biomejs/biome": "2.4.4",
+        "@happy-dom/global-registrator": "^20.7.0",
         "@semantic-release/changelog": "^6.0.3",
         "@semantic-release/git": "^10.0.1",
-        "@tailwindcss/postcss": "^4.1.18",
+        "@tailwindcss/postcss": "^4.2.0",
         "@testing-library/react": "^16.3.2",
         "@testing-library/user-event": "^14.6.1",
-        "@types/node": "^25.2.3",
+        "@types/bun": "^1.3.9",
+        "@types/node": "^25.3.0",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
+        "@types/stream-json": "^1.7.8",
         "babel-plugin-react-compiler": "1.0.0",
-        "happy-dom": "^20.6.1",
+        "happy-dom": "^20.7.0",
         "semantic-release": "^25.0.3",
-        "tailwindcss": "^4.1.18",
+        "tailwindcss": "^4.2.0",
         "typescript": "^5.9.3"
     },
     "engines": {
         "bun": ">=1.3.9",
         "node": ">=25.x"
     },
+    "homepage": "https://github.com/ragaeeb/rupture-baby#readme",
     "ignoreScripts": [
         "sharp",
         "unrs-resolver"
     ],
+    "keywords": [
+        "nextjs",
+        "bun",
+        "api",
+        "translation",
+        "arabic",
+        "llm",
+        "browser-extension"
+    ],
+    "license": "MIT",
     "name": "rupture-baby",
     "packageManager": "bun@1.3.9",
     "private": true,
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ragaeeb/rupture-baby.git"
+    },
     "scripts": {
         "build": "next build",
-        "dev": "next dev",
+        "dev": "exec bun --bun next dev --webpack",
+        "dev:turbo": "exec bun --bun next dev",
         "format": "biome format --write",
         "lint": "biome check",
-        "start": "next start"
+        "start": "bun --bun next start"
     },
-    "trustedDependencies": [
-        "sharp",
-        "unrs-resolver"
-    ],
     "version": "1.0.0"
 }
