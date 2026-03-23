@@ -78,7 +78,7 @@ export default function TranslationsLayout({ children }: { children: React.React
                     </Breadcrumb>
                 </header>
 
-                <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
+                <div className="flex min-h-0 flex-1 flex-col p-4">
                     {treeError ? <p className="text-destructive text-sm">{treeError}</p> : null}
                     <Suspense fallback={<p className="text-muted-foreground text-sm">Loading file…</p>}>
                         {children}
