@@ -1,6 +1,6 @@
 import { TRANSLATION_MODELS } from '@/lib/translation-models';
 
-import type { PromptOption } from '@/app/_lib/translation-picker-types';
+import type { PromptOption } from '@/lib/translation-picker-types';
 
 type ConfigPanelProps = {
     modelId: string;
@@ -24,7 +24,11 @@ const ConfigPanel = ({
     <div className="mt-6 grid gap-4 rounded border bg-white p-4 md:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm">
             Model
-            <select className="rounded border px-3 py-2" value={modelId} onChange={(event) => onModelChange(event.target.value)}>
+            <select
+                className="rounded border px-3 py-2"
+                value={modelId}
+                onChange={(event) => onModelChange(event.target.value)}
+            >
                 {TRANSLATION_MODELS.map((model) => (
                     <option key={model.id} value={model.id}>
                         [{model.id}] {model.label}
@@ -47,7 +51,11 @@ const ConfigPanel = ({
 
         <label className="flex flex-col gap-2 text-sm md:col-span-2">
             Prompt
-            <select className="rounded border px-3 py-2" value={promptId} onChange={(event) => onPromptChange(event.target.value)}>
+            <select
+                className="rounded border px-3 py-2"
+                value={promptId}
+                onChange={(event) => onPromptChange(event.target.value)}
+            >
                 {promptOptions.map((prompt) => (
                     <option key={prompt.id} value={prompt.id}>
                         [{prompt.id}] {prompt.name}

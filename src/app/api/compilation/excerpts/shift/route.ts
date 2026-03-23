@@ -25,9 +25,7 @@ export const GET = async (request: Request) => {
         shiftFirstN(shiftCache.queue, result.shiftCount);
 
         return new NextResponse(result.payload, {
-            headers: {
-                'content-type': 'text/plain; charset=utf-8',
-            },
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
             status: 200,
         });
     } catch (error) {

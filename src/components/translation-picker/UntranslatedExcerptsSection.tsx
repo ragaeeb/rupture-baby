@@ -1,11 +1,6 @@
 import type { Excerpt } from '@/lib/compilation';
 
-type Pagination = {
-    page: number;
-    totalPages: number;
-    hasPreviousPage: boolean;
-    hasNextPage: boolean;
-};
+type Pagination = { page: number; totalPages: number; hasPreviousPage: boolean; hasNextPage: boolean };
 
 type UntranslatedExcerptsSectionProps = {
     data: Excerpt[];

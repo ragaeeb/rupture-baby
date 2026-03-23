@@ -1,4 +1,4 @@
-import type { TranslationApiResponse } from '@/app/_lib/translation-picker-types';
+import type { TranslationApiResponse } from '@/lib/translation-picker-types';
 
 type PickerGroupsSectionProps = {
     picker: TranslationApiResponse['picker'];
@@ -7,11 +7,17 @@ type PickerGroupsSectionProps = {
     onSelectEndIndex: (index: number) => void;
 };
 
-const PickerGroupsSection = ({ picker, selectedIdsLookup, onClearSelection, onSelectEndIndex }: PickerGroupsSectionProps) => (
+const PickerGroupsSection = ({
+    picker,
+    selectedIdsLookup,
+    onClearSelection,
+    onSelectEndIndex,
+}: PickerGroupsSectionProps) => (
     <section className="rounded border p-4">
         <h2 className="font-semibold text-lg">Picker Groups</h2>
         <p className="mt-1 text-neutral-600 text-sm">
-            {picker.availableTotal.toLocaleString()} untranslated items, showing {picker.displayedTotal.toLocaleString()}.
+            {picker.availableTotal.toLocaleString()} untranslated items, showing{' '}
+            {picker.displayedTotal.toLocaleString()}.
         </p>
         <p className="mt-1 font-mono text-blue-700 text-sm">
             Selected: {picker.selectedCount} • ~{picker.selectedTokenCount.toLocaleString()} tokens

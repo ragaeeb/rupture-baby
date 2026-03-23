@@ -25,10 +25,7 @@ describe('POST /api/translations/[id]', () => {
         delete process.env.TRANSLATIONS_DIR;
 
         const response = await POST(
-            new Request('http://localhost/api/translations/1', {
-                method: 'POST',
-                body: '{"hello":"world"}',
-            }),
+            new Request('http://localhost/api/translations/1', { method: 'POST', body: '{"hello":"world"}' }),
             { params: Promise.resolve({ id: '1' }) },
         );
 
@@ -39,18 +36,23 @@ describe('POST /api/translations/[id]', () => {
         process.env.TRANSLATIONS_DIR = tempDir;
 
         const response = await POST(
-            new Request('http://localhost/api/translations/123', {
-                method: 'POST',
-                body: '{"foo":"bar"}',
-            }),
+            new Request('http://localhost/api/translations/123', { method: 'POST', body: '{"foo":"bar"}' }),
             { params: Promise.resolve({ id: '123' }) },
         );
-        const json = (await response.json()) as { id: string; path: string; saved: boolean };
+        const json = (await response.json()) as {
+            id: string;
+            path: string;
+            saved: boolean;
+            duplicate: boolean;
+            blackiyaSeq: number | null;
+            blackiyaCreatedAt: number | null;
+        };
         const content = await readFile(path.join(tempDir, '123.json'), 'utf8');
 
         expect(response.status).toBe(200);
         expect(json.id).toBe('123');
         expect(json.saved).toBe(true);
+        expect(json.duplicate).toBe(false);
         expect(content).toBe('{"foo":"bar"}');
     });
 
@@ -59,17 +61,110 @@ describe('POST /api/translations/[id]', () => {
         process.env.TRANSLATIONS_DIR = nestedDir;
 
         const response = await POST(
-            new Request('http://localhost/api/translations/456', {
-                method: 'POST',
-                body: '{"nested":"ok"}',
-            }),
+            new Request('http://localhost/api/translations/456', { method: 'POST', body: '{"nested":"ok"}' }),
             { params: Promise.resolve({ id: '456' }) },
         );
-        const json = (await response.json()) as { saved: boolean };
+        const json = (await response.json()) as { saved: boolean; duplicate: boolean };
         const content = await readFile(path.join(nestedDir, '456.json'), 'utf8');
 
         expect(response.status).toBe(200);
         expect(json.saved).toBe(true);
+        expect(json.duplicate).toBe(false);
         expect(content).toBe('{"nested":"ok"}');
+    });
+
+    it('should return 409 duplicate for repeated idempotency key and keep first payload', async () => {
+        process.env.TRANSLATIONS_DIR = tempDir;
+
+        const firstResponse = await POST(
+            new Request('http://localhost/api/translations/789', {
+                method: 'POST',
+                body: '{"first":"payload"}',
+                headers: {
+                    'X-Idempotency-Key': 'evt-123',
+                    'X-Blackiya-Seq': '15',
+                    'X-Blackiya-Created-At': '1710000000000',
+                },
+            }),
+            { params: Promise.resolve({ id: '789' }) },
+        );
+
+        const duplicateResponse = await POST(
+            new Request('http://localhost/api/translations/789', {
+                method: 'POST',
+                body: '{"second":"payload"}',
+                headers: {
+                    'X-Idempotency-Key': 'evt-123',
+                    'X-Blackiya-Seq': '15',
+                    'X-Blackiya-Created-At': '1710000000000',
+                },
+            }),
+            { params: Promise.resolve({ id: '789' }) },
+        );
+
+        const firstJson = (await firstResponse.json()) as { duplicate: boolean };
+        const duplicateJson = (await duplicateResponse.json()) as {
+            duplicate: boolean;
+            saved: boolean;
+            blackiyaSeq: number | null;
+            blackiyaCreatedAt: number | null;
+        };
+
+        const content = await readFile(path.join(tempDir, '789.json'), 'utf8');
+        const metaRaw = await readFile(path.join(tempDir, '789.meta.json'), 'utf8');
+        const meta = JSON.parse(metaRaw) as {
+            idempotencyKey: string | null;
+            blackiyaSeq: number | null;
+            blackiyaCreatedAt: number | null;
+        };
+
+        expect(firstResponse.status).toBe(200);
+        expect(firstJson.duplicate).toBe(false);
+        expect(duplicateResponse.status).toBe(409);
+        expect(duplicateJson.duplicate).toBe(true);
+        expect(duplicateJson.saved).toBe(true);
+        expect(content).toBe('{"first":"payload"}');
+        expect(meta.idempotencyKey).toBe('evt-123');
+        expect(meta.blackiyaSeq).toBe(15);
+        expect(meta.blackiyaCreatedAt).toBe(1710000000000);
+    });
+
+    it('should skip stale writes when incoming seq is older than saved seq', async () => {
+        process.env.TRANSLATIONS_DIR = tempDir;
+
+        const firstResponse = await POST(
+            new Request('http://localhost/api/translations/seq-test', {
+                method: 'POST',
+                body: '{"value":"newer"}',
+                headers: {
+                    'X-Blackiya-Seq': '50',
+                    'X-Blackiya-Created-At': '1710000000500',
+                },
+            }),
+            { params: Promise.resolve({ id: 'seq-test' }) },
+        );
+        expect(firstResponse.status).toBe(200);
+
+        const staleResponse = await POST(
+            new Request('http://localhost/api/translations/seq-test', {
+                method: 'POST',
+                body: '{"value":"older"}',
+                headers: {
+                    'X-Blackiya-Seq': '49',
+                    'X-Blackiya-Created-At': '1710000000490',
+                },
+            }),
+            { params: Promise.resolve({ id: 'seq-test' }) },
+        );
+        const staleJson = (await staleResponse.json()) as { stale?: boolean; blackiyaSeq: number | null };
+        const content = await readFile(path.join(tempDir, 'seq-test.json'), 'utf8');
+        const metaRaw = await readFile(path.join(tempDir, 'seq-test.meta.json'), 'utf8');
+        const meta = JSON.parse(metaRaw) as { blackiyaSeq: number | null };
+
+        expect(staleResponse.status).toBe(200);
+        expect(staleJson.stale).toBe(true);
+        expect(staleJson.blackiyaSeq).toBe(50);
+        expect(content).toBe('{"value":"newer"}');
+        expect(meta.blackiyaSeq).toBe(50);
     });
 });

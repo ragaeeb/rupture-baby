@@ -27,7 +27,4 @@ export type TranslationApiResponse = {
     };
 };
 
-export type PromptOption = {
-    id: string;
-    name: string;
-};
+export type PromptOption = { id: string; name: string };

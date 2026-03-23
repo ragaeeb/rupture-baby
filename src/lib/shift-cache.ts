@@ -9,12 +9,7 @@ import { streamValues } from 'stream-json/streamers/StreamValues';
 import { requireCompilationFilePath } from '@/lib/data-paths';
 import type { ShiftExcerpt } from '@/lib/shift-payload';
 
-type ShiftCache = {
-    filePath: string;
-    mtimeMs: number;
-    prompt: string;
-    queue: ShiftExcerpt[];
-};
+type ShiftCache = { filePath: string; mtimeMs: number; prompt: string; queue: ShiftExcerpt[] };
 
 let shiftCache: ShiftCache | null = null;
 let loadPromise: Promise<ShiftCache> | null = null;
@@ -41,7 +36,10 @@ const getInputStream = (filePath: string): Readable => {
 };
 
 const loadPrompt = async (filePath: string): Promise<string> => {
-    const promptStream = getInputStream(filePath).pipe(parser()).pipe(pick({ filter: 'promptForTranslation' })).pipe(streamValues());
+    const promptStream = getInputStream(filePath)
+        .pipe(parser())
+        .pipe(pick({ filter: 'promptForTranslation' }))
+        .pipe(streamValues());
 
     for await (const entry of promptStream as AsyncIterable<{ key: number; value: unknown }>) {
         if (typeof entry.value === 'string') {
@@ -54,17 +52,17 @@ const loadPrompt = async (filePath: string): Promise<string> => {
 
 const loadUntranslatedQueue = async (filePath: string): Promise<ShiftExcerpt[]> => {
     const queue: ShiftExcerpt[] = [];
-    const excerptStream = getInputStream(filePath).pipe(parser()).pipe(pick({ filter: 'excerpts' })).pipe(streamArray());
+    const excerptStream = getInputStream(filePath)
+        .pipe(parser())
+        .pipe(pick({ filter: 'excerpts' }))
+        .pipe(streamArray());
 
     for await (const entry of excerptStream as AsyncIterable<{
         key: number;
         value: { id: string; nass: string; text?: string | null };
     }>) {
         if (entry.value.text === undefined || entry.value.text === null) {
-            queue.push({
-                id: entry.value.id,
-                nass: entry.value.nass,
-            });
+            queue.push({ id: entry.value.id, nass: entry.value.nass });
         }
     }
 
@@ -74,12 +72,7 @@ const loadUntranslatedQueue = async (filePath: string): Promise<ShiftExcerpt[]> 
 const loadShiftCache = async (filePath: string, mtimeMs: number): Promise<ShiftCache> => {
     const [prompt, queue] = await Promise.all([loadPrompt(filePath), loadUntranslatedQueue(filePath)]);
 
-    return {
-        filePath,
-        mtimeMs,
-        prompt,
-        queue,
-    };
+    return { filePath, mtimeMs, prompt, queue };
 };
 
 export const getShiftCache = async (): Promise<ShiftCache> => {

@@ -2,23 +2,13 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import { MissingPathConfigError } from '@/lib/data-paths';
 
-const state = {
-    model: { id: 'm1', label: 'Model', provider: 'openai' },
-    excerpts: [{ id: '1', nass: 'abc' }],
-};
+const state = { model: { id: 'm1', label: 'Model', provider: 'openai' }, excerpts: [{ id: '1', nass: 'abc' }] };
 
-mock.module('bitaboom', () => ({
-    estimateTokenCount: (text: string) => text.length,
-}));
+mock.module('bitaboom', () => ({ estimateTokenCount: (text: string) => text.length }));
 
-mock.module('@/lib/translation-models', () => ({
-    DEFAULT_MODEL_ID: 'm1',
-    getTranslationModelById: () => state.model,
-}));
+mock.module('@/lib/translation-models', () => ({ DEFAULT_MODEL_ID: 'm1', getTranslationModelById: () => state.model }));
 
-mock.module('@/lib/untranslated-cache', () => ({
-    getCachedUntranslatedExcerpts: async () => state.excerpts,
-}));
+mock.module('@/lib/untranslated-cache', () => ({ getCachedUntranslatedExcerpts: async () => state.excerpts }));
 
 const { GET } = await import('./route');
 
@@ -27,7 +17,9 @@ describe('GET /api/compilation/excerpts/payload', () => {
         state.model = { id: 'm1', label: 'Model', provider: 'openai' };
         state.excerpts = [{ id: '1', nass: 'abc' }];
 
-        const response = await GET(new Request('http://localhost/api/compilation/excerpts/payload?maxTokens=100000&maxItems=10'));
+        const response = await GET(
+            new Request('http://localhost/api/compilation/excerpts/payload?maxTokens=100000&maxItems=10'),
+        );
         const json = (await response.json()) as { excerptCount: number; payload: string };
 
         expect(response.status).toBe(200);

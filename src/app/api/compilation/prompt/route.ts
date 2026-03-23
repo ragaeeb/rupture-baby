@@ -7,9 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export const GET = async () => {
     const selected = getSelectedPrompt();
-    return NextResponse.json({
-        selectedPromptId: selected.id,
-    });
+    return NextResponse.json({ selectedPromptId: selected.id });
 };
 
 export const POST = async (request: Request) => {
@@ -32,9 +30,7 @@ export const POST = async (request: Request) => {
             );
         }
 
-        return NextResponse.json({
-            selectedPromptId: selected.id,
-        });
+        return NextResponse.json({ selectedPromptId: selected.id });
     } catch {
         return NextResponse.json({ error: 'Failed to set prompt.' }, { status: 500 });
     }

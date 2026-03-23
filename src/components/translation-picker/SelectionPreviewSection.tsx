@@ -1,9 +1,6 @@
 import type { Excerpt } from '@/lib/compilation';
 
-type SelectionPreviewSectionProps = {
-    promptTokens: number;
-    selectedItems: Excerpt[];
-};
+type SelectionPreviewSectionProps = { promptTokens: number; selectedItems: Excerpt[] };
 
 const SelectionPreviewSection = ({ promptTokens, selectedItems }: SelectionPreviewSectionProps) => (
     <aside className="rounded border p-4">
