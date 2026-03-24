@@ -1,116 +1,123 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
+import { useRouter } from 'next/navigation';
+import type { Dispatch, SetStateAction } from 'react';
+import { useEffect, useState } from 'react';
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { fetchTranslationTree } from '@/lib/shell-api';
+import type { TranslationTreeNode, TranslationTreeResponse } from '@/lib/shell-types';
 
-import type { Excerpt } from "@/lib/compilation";
-
-type ApiResponse = {
-  data: Excerpt[];
-  pagination: {
-    page: number;
-    pageSize: number;
-    totalItems: number;
-    totalPages: number;
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
-  };
+const findFirstJsonFilePath = (entries: TranslationTreeNode[]): string | null => {
+    for (const entry of entries) {
+        if (entry.kind === 'file') {
+            return entry.relativePath;
+        }
+        if (entry.children?.length) {
+            const nestedPath = findFirstJsonFilePath(entry.children);
+            if (nestedPath) {
+                return nestedPath;
+            }
+        }
+    }
+    return null;
 };
 
-const PAGE_SIZE = 5;
+const redirectToFirstFile = (router: ReturnType<typeof useRouter>, translationTree: TranslationTreeResponse) => {
+    const firstFilePath = findFirstJsonFilePath(translationTree.entries);
+    if (!firstFilePath) {
+        return false;
+    }
+
+    const encodedPath = encodeURIComponent(firstFilePath);
+    router.replace(`/translations/${encodedPath}`);
+    return true;
+};
+
+const handleMissingTranslationFiles = (
+    setTree: Dispatch<SetStateAction<TranslationTreeResponse | null>>,
+    setTreeError: Dispatch<SetStateAction<string | null>>,
+    setRedirectPending: Dispatch<SetStateAction<boolean>>,
+) => {
+    setTree(null);
+    setTreeError('No translation files were found.');
+    setRedirectPending(false);
+};
+
+const handleLoadedTree = (
+    router: ReturnType<typeof useRouter>,
+    translationTree: TranslationTreeResponse,
+    setTree: Dispatch<SetStateAction<TranslationTreeResponse | null>>,
+    setTreeError: Dispatch<SetStateAction<string | null>>,
+    setRedirectPending: Dispatch<SetStateAction<boolean>>,
+) => {
+    setTree(translationTree);
+    setTreeError(null);
+
+    if (redirectToFirstFile(router, translationTree)) {
+        return;
+    }
+
+    handleMissingTranslationFiles(setTree, setTreeError, setRedirectPending);
+};
+
+const handleTreeLoadError = (
+    error: unknown,
+    setTree: Dispatch<SetStateAction<TranslationTreeResponse | null>>,
+    setTreeError: Dispatch<SetStateAction<string | null>>,
+    setRedirectPending: Dispatch<SetStateAction<boolean>>,
+) => {
+    setTree(null);
+    setTreeError(error instanceof Error ? error.message : 'Failed to load translation files.');
+    setRedirectPending(false);
+};
 
 const Home = () => {
-  const [page, setPage] = useState(1);
-  const [response, setResponse] = useState<ApiResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+    const router = useRouter();
+    const [tree, setTree] = useState<TranslationTreeResponse | null>(null);
+    const [treeError, setTreeError] = useState<string | null>(null);
+    const [redirectPending, setRedirectPending] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
+    useEffect(() => {
+        let isMounted = true;
 
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+        const loadTree = async () => {
+            try {
+                setTree(null);
+                setTreeError(null);
+                setRedirectPending(true);
+                const translationTree = await fetchTranslationTree();
+                if (!isMounted) {
+                    return;
+                }
 
-      try {
-        const res = await fetch(
-          `/api/compilation/excerpts?page=${page}&pageSize=${PAGE_SIZE}`,
-        );
+                handleLoadedTree(router, translationTree, setTree, setTreeError, setRedirectPending);
+            } catch (error) {
+                if (!isMounted) {
+                    return;
+                }
+                handleTreeLoadError(error, setTree, setTreeError, setRedirectPending);
+            }
+        };
 
-        if (!res.ok) {
-          throw new Error(`Request failed with status ${res.status}`);
-        }
+        loadTree();
 
-        const json = (await res.json()) as ApiResponse;
-        if (!cancelled) {
-          setResponse(json);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unknown error");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
+        return () => {
+            isMounted = false;
+        };
+    }, [router]);
 
-    load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [page]);
-
-  return (
-    <main className="mx-auto max-w-3xl p-8">
-      <h1 className="text-2xl font-semibold">Compilation Excerpts API Demo</h1>
-      <p className="mt-2 text-sm text-neutral-600">
-        Endpoint: <code>/api/compilation/excerpts?page=1&pageSize=5</code>
-      </p>
-
-      {loading ? <p className="mt-6">Loading...</p> : null}
-      {error ? <p className="mt-6 text-red-600">{error}</p> : null}
-
-      {!loading && !error && response ? (
-        <>
-          <ul className="mt-6 space-y-4">
-            {response.data.map((excerpt) => (
-              <li key={excerpt.id} className="rounded border p-4">
-                <p className="text-sm text-neutral-500">
-                  {excerpt.id} | {excerpt.from}-{excerpt.to}
-                </p>
-                <p className="mt-2 font-medium">{excerpt.nass}</p>
-                <p className="mt-1 text-neutral-700">{excerpt.text}</p>
-              </li>
-            ))}
-          </ul>
-
-          <div className="mt-6 flex items-center gap-3">
-            <button
-              type="button"
-              className="rounded border px-3 py-2 disabled:opacity-40"
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              disabled={!response.pagination.hasPreviousPage}
-            >
-              Previous
-            </button>
-            <span className="text-sm">
-              Page {response.pagination.page} of {response.pagination.totalPages}
-            </span>
-            <button
-              type="button"
-              className="rounded border px-3 py-2 disabled:opacity-40"
-              onClick={() => setPage((current) => current + 1)}
-              disabled={!response.pagination.hasNextPage}
-            >
-              Next
-            </button>
-          </div>
-        </>
-      ) : null}
-    </main>
-  );
+    return (
+        <SidebarProvider>
+            <SidebarInset>
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-4">
+                    {treeError ? <p className="text-destructive text-sm">{treeError}</p> : null}
+                    {redirectPending && tree === null && !treeError ? (
+                        <p className="text-muted-foreground text-sm">Redirecting...</p>
+                    ) : null}
+                </div>
+            </SidebarInset>
+        </SidebarProvider>
+    );
 };
 
 export default Home;
