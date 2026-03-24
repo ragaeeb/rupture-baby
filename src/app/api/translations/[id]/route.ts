@@ -60,11 +60,111 @@ const shouldSkipStaleWrite = (incomingSeq: number | null, existingSeq: number | 
     return incomingSeq <= existingSeq;
 };
 
+const createSavedResponse = (payload: {
+    blackiyaCreatedAt: number | null;
+    blackiyaSeq: number | null;
+    duplicate: boolean;
+    id: string;
+    idempotencyKey?: string | null;
+    path: string;
+    stale?: boolean;
+}) => NextResponse.json({ ...payload, saved: true }, payload.duplicate ? { status: 409 } : undefined);
+
+const writeMetaFile = async (
+    metaPath: string,
+    payload: Omit<TranslationWriteMeta, 'savedAtIso'> & { savedAtIso?: string },
+) => {
+    const writeMeta: TranslationWriteMeta = { ...payload, savedAtIso: payload.savedAtIso ?? new Date().toISOString() };
+    await Bun.write(metaPath, JSON.stringify(writeMeta, null, 2));
+    return writeMeta;
+};
+
+const handleStaleWrite = (
+    id: string,
+    outputPath: string,
+    existingMeta: TranslationWriteMeta | null,
+    blackiyaCreatedAt: number | null,
+    blackiyaSeq: number | null,
+) =>
+    createSavedResponse({
+        blackiyaCreatedAt: existingMeta?.blackiyaCreatedAt ?? blackiyaCreatedAt,
+        blackiyaSeq: existingMeta?.blackiyaSeq ?? blackiyaSeq,
+        duplicate: false,
+        id,
+        path: outputPath,
+        stale: true,
+    });
+
+const handleIdempotentWrite = async (params: {
+    blackiyaCreatedAt: number | null;
+    blackiyaSeq: number | null;
+    existingMeta: TranslationWriteMeta | null;
+    id: string;
+    idempotencyKey: string;
+    metaPath: string;
+    outputDir: string;
+    outputPath: string;
+    payloadSha256: string;
+    rawConversation: string;
+}) => {
+    const idempotencyDirectory = path.join(params.outputDir, IDENTITY_DIR_NAME);
+    await mkdir(idempotencyDirectory, { recursive: true });
+    const idempotencyPath = path.join(idempotencyDirectory, `${hashIdempotencyKey(params.idempotencyKey)}.json`);
+    const existingRecord = await readJsonIfExists<IdempotencyRecord>(idempotencyPath);
+
+    if (existingRecord) {
+        return createSavedResponse({
+            blackiyaCreatedAt: existingRecord.blackiyaCreatedAt,
+            blackiyaSeq: existingRecord.blackiyaSeq,
+            duplicate: true,
+            id: params.id,
+            idempotencyKey: params.idempotencyKey,
+            path: params.outputPath,
+        });
+    }
+
+    if (shouldSkipStaleWrite(params.blackiyaSeq, params.existingMeta?.blackiyaSeq ?? null)) {
+        return handleStaleWrite(
+            params.id,
+            params.outputPath,
+            params.existingMeta,
+            params.blackiyaCreatedAt,
+            params.blackiyaSeq,
+        );
+    }
+
+    await Bun.write(params.outputPath, params.rawConversation);
+    const writeMeta = await writeMetaFile(params.metaPath, {
+        blackiyaCreatedAt: params.blackiyaCreatedAt,
+        blackiyaSeq: params.blackiyaSeq,
+        conversationId: params.id,
+        idempotencyKey: params.idempotencyKey,
+        payloadSha256: params.payloadSha256,
+    });
+
+    const idempotencyRecord: IdempotencyRecord = {
+        blackiyaCreatedAt: params.blackiyaCreatedAt,
+        blackiyaSeq: params.blackiyaSeq,
+        conversationId: params.id,
+        firstSeenAtIso: writeMeta.savedAtIso,
+        idempotencyKey: params.idempotencyKey,
+        payloadSha256: params.payloadSha256,
+    };
+    await Bun.write(idempotencyPath, JSON.stringify(idempotencyRecord, null, 2));
+
+    return createSavedResponse({
+        blackiyaCreatedAt: params.blackiyaCreatedAt,
+        blackiyaSeq: params.blackiyaSeq,
+        duplicate: false,
+        id: params.id,
+        path: params.outputPath,
+    });
+};
+
 export const POST = async (request: Request, context: RouteContext) => {
     try {
         const { id } = await context.params;
         const rawConversation = await request.text();
-
         const idempotencyKey = request.headers.get('x-idempotency-key')?.trim() || null;
         const blackiyaSeq = parseOptionalNumber(request.headers.get('x-blackiya-seq'));
         const blackiyaCreatedAt = parseOptionalNumber(request.headers.get('x-blackiya-created-at'));
@@ -77,88 +177,34 @@ export const POST = async (request: Request, context: RouteContext) => {
         const existingMeta = await readJsonIfExists<TranslationWriteMeta>(metaPath);
 
         if (idempotencyKey) {
-            const idempotencyDirectory = path.join(outputDir, IDENTITY_DIR_NAME);
-            await mkdir(idempotencyDirectory, { recursive: true });
-            const idempotencyPath = path.join(idempotencyDirectory, `${hashIdempotencyKey(idempotencyKey)}.json`);
-            const existingRecord = await readJsonIfExists<IdempotencyRecord>(idempotencyPath);
-
-            if (existingRecord) {
-                return NextResponse.json(
-                    {
-                        duplicate: true,
-                        id,
-                        idempotencyKey,
-                        saved: true,
-                        path: path.join(outputDir, `${id}.json`),
-                        blackiyaSeq: existingRecord.blackiyaSeq,
-                        blackiyaCreatedAt: existingRecord.blackiyaCreatedAt,
-                    },
-                    { status: 409 },
-                );
-            }
-
-            if (shouldSkipStaleWrite(blackiyaSeq, existingMeta?.blackiyaSeq ?? null)) {
-                return NextResponse.json({
-                    id,
-                    path: outputPath,
-                    saved: true,
-                    duplicate: false,
-                    stale: true,
-                    blackiyaSeq: existingMeta?.blackiyaSeq ?? blackiyaSeq,
-                    blackiyaCreatedAt: existingMeta?.blackiyaCreatedAt ?? blackiyaCreatedAt,
-                });
-            }
-
-            await Bun.write(outputPath, rawConversation);
-
-            const writeMeta: TranslationWriteMeta = {
-                conversationId: id,
-                payloadSha256,
-                savedAtIso: new Date().toISOString(),
-                idempotencyKey,
-                blackiyaSeq,
+            return handleIdempotentWrite({
                 blackiyaCreatedAt,
-            };
-            await Bun.write(metaPath, JSON.stringify(writeMeta, null, 2));
-
-            const idempotencyRecord: IdempotencyRecord = {
-                idempotencyKey,
-                conversationId: id,
-                payloadSha256,
-                firstSeenAtIso: writeMeta.savedAtIso,
                 blackiyaSeq,
-                blackiyaCreatedAt,
-            };
-            await Bun.write(idempotencyPath, JSON.stringify(idempotencyRecord, null, 2));
-
-            return NextResponse.json({ id, path: outputPath, saved: true, duplicate: false, blackiyaSeq, blackiyaCreatedAt });
-        }
-
-        if (shouldSkipStaleWrite(blackiyaSeq, existingMeta?.blackiyaSeq ?? null)) {
-            return NextResponse.json({
+                existingMeta,
                 id,
-                path: outputPath,
-                saved: true,
-                duplicate: false,
-                stale: true,
-                blackiyaSeq: existingMeta?.blackiyaSeq ?? blackiyaSeq,
-                blackiyaCreatedAt: existingMeta?.blackiyaCreatedAt ?? blackiyaCreatedAt,
+                idempotencyKey,
+                metaPath,
+                outputDir,
+                outputPath,
+                payloadSha256,
+                rawConversation,
             });
         }
 
+        if (shouldSkipStaleWrite(blackiyaSeq, existingMeta?.blackiyaSeq ?? null)) {
+            return handleStaleWrite(id, outputPath, existingMeta, blackiyaCreatedAt, blackiyaSeq);
+        }
+
         await Bun.write(outputPath, rawConversation);
-
-        const writeMeta: TranslationWriteMeta = {
-            conversationId: id,
-            payloadSha256,
-            savedAtIso: new Date().toISOString(),
-            idempotencyKey,
-            blackiyaSeq,
+        await writeMetaFile(metaPath, {
             blackiyaCreatedAt,
-        };
-        await Bun.write(metaPath, JSON.stringify(writeMeta, null, 2));
+            blackiyaSeq,
+            conversationId: id,
+            idempotencyKey,
+            payloadSha256,
+        });
 
-        return NextResponse.json({ id, path: outputPath, saved: true, duplicate: false, blackiyaSeq, blackiyaCreatedAt });
+        return createSavedResponse({ blackiyaCreatedAt, blackiyaSeq, duplicate: false, id, path: outputPath });
     } catch (error) {
         if (error instanceof MissingPathConfigError) {
             return NextResponse.json({ error: error.message, key: error.key }, { status: 400 });

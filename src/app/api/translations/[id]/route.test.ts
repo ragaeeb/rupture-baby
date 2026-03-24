@@ -1,8 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { POST } from './route';
 
@@ -25,7 +24,7 @@ describe('POST /api/translations/[id]', () => {
         delete process.env.TRANSLATIONS_DIR;
 
         const response = await POST(
-            new Request('http://localhost/api/translations/1', { method: 'POST', body: '{"hello":"world"}' }),
+            new Request('http://localhost/api/translations/1', { body: '{"hello":"world"}', method: 'POST' }),
             { params: Promise.resolve({ id: '1' }) },
         );
 
@@ -36,7 +35,7 @@ describe('POST /api/translations/[id]', () => {
         process.env.TRANSLATIONS_DIR = tempDir;
 
         const response = await POST(
-            new Request('http://localhost/api/translations/123', { method: 'POST', body: '{"foo":"bar"}' }),
+            new Request('http://localhost/api/translations/123', { body: '{"foo":"bar"}', method: 'POST' }),
             { params: Promise.resolve({ id: '123' }) },
         );
         const json = (await response.json()) as {
@@ -61,7 +60,7 @@ describe('POST /api/translations/[id]', () => {
         process.env.TRANSLATIONS_DIR = nestedDir;
 
         const response = await POST(
-            new Request('http://localhost/api/translations/456', { method: 'POST', body: '{"nested":"ok"}' }),
+            new Request('http://localhost/api/translations/456', { body: '{"nested":"ok"}', method: 'POST' }),
             { params: Promise.resolve({ id: '456' }) },
         );
         const json = (await response.json()) as { saved: boolean; duplicate: boolean };
@@ -78,26 +77,26 @@ describe('POST /api/translations/[id]', () => {
 
         const firstResponse = await POST(
             new Request('http://localhost/api/translations/789', {
-                method: 'POST',
                 body: '{"first":"payload"}',
                 headers: {
-                    'X-Idempotency-Key': 'evt-123',
-                    'X-Blackiya-Seq': '15',
                     'X-Blackiya-Created-At': '1710000000000',
+                    'X-Blackiya-Seq': '15',
+                    'X-Idempotency-Key': 'evt-123',
                 },
+                method: 'POST',
             }),
             { params: Promise.resolve({ id: '789' }) },
         );
 
         const duplicateResponse = await POST(
             new Request('http://localhost/api/translations/789', {
-                method: 'POST',
                 body: '{"second":"payload"}',
                 headers: {
-                    'X-Idempotency-Key': 'evt-123',
-                    'X-Blackiya-Seq': '15',
                     'X-Blackiya-Created-At': '1710000000000',
+                    'X-Blackiya-Seq': '15',
+                    'X-Idempotency-Key': 'evt-123',
                 },
+                method: 'POST',
             }),
             { params: Promise.resolve({ id: '789' }) },
         );
@@ -134,12 +133,9 @@ describe('POST /api/translations/[id]', () => {
 
         const firstResponse = await POST(
             new Request('http://localhost/api/translations/seq-test', {
-                method: 'POST',
                 body: '{"value":"newer"}',
-                headers: {
-                    'X-Blackiya-Seq': '50',
-                    'X-Blackiya-Created-At': '1710000000500',
-                },
+                headers: { 'X-Blackiya-Created-At': '1710000000500', 'X-Blackiya-Seq': '50' },
+                method: 'POST',
             }),
             { params: Promise.resolve({ id: 'seq-test' }) },
         );
@@ -147,12 +143,9 @@ describe('POST /api/translations/[id]', () => {
 
         const staleResponse = await POST(
             new Request('http://localhost/api/translations/seq-test', {
-                method: 'POST',
                 body: '{"value":"older"}',
-                headers: {
-                    'X-Blackiya-Seq': '49',
-                    'X-Blackiya-Created-At': '1710000000490',
-                },
+                headers: { 'X-Blackiya-Created-At': '1710000000490', 'X-Blackiya-Seq': '49' },
+                method: 'POST',
             }),
             { params: Promise.resolve({ id: 'seq-test' }) },
         );

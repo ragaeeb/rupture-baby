@@ -21,9 +21,18 @@ const findFirstJsonFilePath = (entries: TranslationTreeNode[]): string | null =>
     return null;
 };
 
+const redirectToFirstFile = (router: ReturnType<typeof useRouter>, translationTree: TranslationTreeResponse) => {
+    const firstFilePath = findFirstJsonFilePath(translationTree.entries);
+    if (!firstFilePath) {
+        return;
+    }
+
+    const encodedPath = encodeURIComponent(firstFilePath);
+    router.replace(`/translations/${encodedPath}`);
+};
+
 const Home = () => {
     const router = useRouter();
-    const [tree, setTree] = useState<TranslationTreeResponse | null>(null);
     const [treeError, setTreeError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -37,13 +46,7 @@ const Home = () => {
                     return;
                 }
 
-                setTree(translationTree);
-
-                const firstFilePath = findFirstJsonFilePath(translationTree.entries);
-                if (firstFilePath) {
-                    const encodedPath = encodeURIComponent(firstFilePath);
-                    router.replace(`/translations/${encodedPath}`);
-                }
+                redirectToFirstFile(router, translationTree);
             } catch (error) {
                 if (!isMounted) {
                     return;

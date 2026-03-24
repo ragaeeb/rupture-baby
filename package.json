@@ -72,7 +72,7 @@
         "build": "next build",
         "dev": "bun --bun next dev -p 9000 --webpack",
         "dev:turbo": "bun --bun next dev -p 9000",
-        "format": "biome format --write",
+        "format": "biome format --write && biome check --write",
         "lint": "biome check",
         "start": "bun --bun next start -p 9000"
     },

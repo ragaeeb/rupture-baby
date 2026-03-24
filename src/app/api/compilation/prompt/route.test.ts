@@ -18,9 +18,9 @@ describe('GET /api/compilation/prompt', () => {
 describe('POST /api/compilation/prompt', () => {
     it('should reject missing promptId', async () => {
         const request = new Request('http://localhost/api/compilation/prompt', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
             body: JSON.stringify({}),
+            headers: { 'content-type': 'application/json' },
+            method: 'POST',
         });
 
         const response = await POST(request);
@@ -35,9 +35,9 @@ describe('POST /api/compilation/prompt', () => {
         expect(validPromptId).toBeDefined();
 
         const request = new Request('http://localhost/api/compilation/prompt', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ promptId: validPromptId }),
+            headers: { 'content-type': 'application/json' },
+            method: 'POST',
         });
 
         const response = await POST(request);

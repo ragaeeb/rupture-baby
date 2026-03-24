@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { LLMProvider } from 'bitaboom';
 
-import { buildShiftPayload, shiftFirstN, type ShiftExcerpt } from './shift-payload';
+import { buildShiftPayload, type ShiftExcerpt, shiftFirstN } from './shift-payload';
 
 const mockEstimateTokenCount = (text: string): number => text.length;
 const TEST_PROVIDER = 'openai' as LLMProvider;

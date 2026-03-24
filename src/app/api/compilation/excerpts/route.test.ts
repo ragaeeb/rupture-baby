@@ -5,12 +5,12 @@ import { MissingPathConfigError } from '@/lib/data-paths';
 type MockExcerpt = { id: string; nass: string; from?: number; to?: number };
 
 const state = {
-    model: { id: 'm1', label: 'Model', provider: 'openai' },
-    prompt: { id: 'p1', content: 'translate' },
     excerpts: [
         { id: '1', nass: 'aaa' },
         { id: '2', nass: 'bbb' },
     ] as MockExcerpt[],
+    model: { id: 'm1', label: 'Model', provider: 'openai' },
+    prompt: { content: 'translate', id: 'p1' },
 };
 
 mock.module('bitaboom', () => ({ estimateTokenCount: (text: string) => text.length }));
@@ -18,7 +18,7 @@ mock.module('bitaboom', () => ({ estimateTokenCount: (text: string) => text.leng
 mock.module('@/lib/translation-models', () => ({ DEFAULT_MODEL_ID: 'm1', getTranslationModelById: () => state.model }));
 
 mock.module('@/lib/grouping', () => ({
-    groupIdsByTokenLimits: (ids: string[]) => [{ label: 'Group', limit: 100, ids, lastIndex: ids.length - 1 }],
+    groupIdsByTokenLimits: (ids: string[]) => [{ ids, label: 'Group', lastIndex: ids.length - 1, limit: 100 }],
 }));
 
 mock.module('@/lib/untranslated-cache', () => ({

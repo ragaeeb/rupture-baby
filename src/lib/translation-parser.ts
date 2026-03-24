@@ -358,6 +358,36 @@ const resolveBlackiyaMeta = (payload: unknown): Record<string, unknown> | null =
     return null;
 };
 
+const parseLegacyWrapper = (data: LegacyWrapper): CommonConversationExport[] | null => {
+    if (data.format === 'original' && isBlackiyaOriginal(data.data)) {
+        const common = convertBlackiyaOriginalToCommon(data.data);
+        const blackiyaMeta = resolveBlackiyaMeta(data);
+        if (blackiyaMeta) {
+            return [{ ...common, __blackiya: blackiyaMeta }];
+        }
+        return [common];
+    }
+
+    if (isBlackiyaOriginal(data.payload)) {
+        return [convertBlackiyaOriginalToCommon(data.payload)];
+    }
+
+    if (typeof data.data === 'object' && data.data !== null) {
+        const dataObj = data.data as Record<string, unknown>;
+        if (isBlackiyaOriginal(dataObj.payload)) {
+            return [convertBlackiyaOriginalToCommon(dataObj.payload as BlackiyaOriginal)];
+        }
+    }
+
+    return null;
+};
+
+const isCommonConversationExport = (data: unknown): data is CommonConversationExport =>
+    typeof data === 'object' &&
+    data !== null &&
+    'format' in data &&
+    (data as CommonConversationExport).format === 'common';
+
 export const parseTranslationToCommon = (data: unknown): CommonConversationExport[] => {
     if (isGrokMassExport(data)) {
         return parseGrokMassExport(data);
@@ -368,32 +398,14 @@ export const parseTranslationToCommon = (data: unknown): CommonConversationExpor
     }
 
     if (isLegacyWrapper(data)) {
-        if (data.format === 'original' && isBlackiyaOriginal(data.data)) {
-            const common = convertBlackiyaOriginalToCommon(data.data);
-            const blackiyaMeta = resolveBlackiyaMeta(data);
-            if (blackiyaMeta) {
-                return [{ ...common, __blackiya: blackiyaMeta }];
-            }
-            return [common];
-        }
-        if (isBlackiyaOriginal(data.payload)) {
-            return [convertBlackiyaOriginalToCommon(data.payload)];
-        }
-        if (typeof data.data === 'object' && data.data !== null) {
-            const dataObj = data.data as Record<string, unknown>;
-            if (isBlackiyaOriginal(dataObj.payload)) {
-                return [convertBlackiyaOriginalToCommon(dataObj.payload as BlackiyaOriginal)];
-            }
+        const parsed = parseLegacyWrapper(data);
+        if (parsed) {
+            return parsed;
         }
     }
 
-    if (
-        typeof data === 'object' &&
-        data !== null &&
-        'format' in data &&
-        (data as CommonConversationExport).format === 'common'
-    ) {
-        return [data as CommonConversationExport];
+    if (isCommonConversationExport(data)) {
+        return [data];
     }
 
     throw new Error('Input does not match a supported translation JSON shape.');

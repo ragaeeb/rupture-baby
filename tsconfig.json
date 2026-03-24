@@ -12,7 +12,6 @@
         "paths": {
             "@/*": ["./src/*"]
         },
-        "types": ["bun", "node"],
         "plugins": [
             {
                 "name": "next"
@@ -21,7 +20,8 @@
         "resolveJsonModule": true,
         "skipLibCheck": true,
         "strict": true,
-        "target": "esnext"
+        "target": "esnext",
+        "types": ["bun", "node"]
     },
     "exclude": ["node_modules"],
     "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts", "**/*.mts"]

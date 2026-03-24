@@ -5,7 +5,7 @@ type PromptOption = { id: string; name: string; content: string; isMaster?: bool
 const PROMPT_OPTIONS = getPrompts() as PromptOption[];
 
 const DEFAULT_PROMPT = PROMPT_OPTIONS.find((prompt) => prompt.isMaster) ??
-    PROMPT_OPTIONS[0] ?? { id: 'none', name: 'None', content: '' };
+    PROMPT_OPTIONS[0] ?? { content: '', id: 'none', name: 'None' };
 
 let selectedPromptId = DEFAULT_PROMPT.id;
 let selectedPromptContent = DEFAULT_PROMPT.content;

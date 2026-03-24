@@ -17,6 +17,10 @@ const SIDEBAR_WIDTH = '16rem';
 const SIDEBAR_WIDTH_ICON = '3rem';
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b';
 
+type CookieStoreApi = {
+    set: (options: { name: string; value: string; path?: string; expires?: Date }) => Promise<void>;
+};
+
 type SidebarContextProps = {
     state: 'expanded' | 'collapsed';
     open: boolean;
@@ -25,6 +29,23 @@ type SidebarContextProps = {
 };
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
+
+const persistSidebarState = (openState: boolean) => {
+    const cookieStoreApi = (window as Window & { cookieStore?: CookieStoreApi }).cookieStore;
+    if (cookieStoreApi) {
+        void cookieStoreApi.set({
+            expires: new Date(Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000),
+            name: SIDEBAR_COOKIE_NAME,
+            path: '/',
+            value: String(openState),
+        });
+        return;
+    }
+
+    Document.prototype
+        .__lookupSetter__('cookie')
+        ?.call(document, `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`);
+};
 
 function useSidebar() {
     const context = React.useContext(SidebarContext);
@@ -57,8 +78,7 @@ function SidebarProvider({
                 _setOpen(openState);
             }
 
-            // This sets the cookie to keep the sidebar state.
-            document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
+            persistSidebarState(openState);
         },
         [setOpenProp, open],
     );

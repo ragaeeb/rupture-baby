@@ -54,6 +54,8 @@ const formatTimestamp = (isoString: string): string => {
     return `${month} ${day}, ${year} ${hours12}:${minutes} ${ampm}`;
 };
 
+const getReasoningStepKey = (step: string, index: number) => `${index}:${step}`;
+
 const SingleConversationView = ({ conversation }: { conversation: CommonConversationExport }) => {
     return (
         <div className="flex h-full min-h-0 flex-col gap-4">
@@ -105,7 +107,10 @@ const SingleConversationView = ({ conversation }: { conversation: CommonConversa
                                 <div className="rounded-lg border bg-card p-4">
                                     <ol className="list-decimal space-y-2 pl-4">
                                         {conversation.reasoning.map((step, index) => (
-                                            <li key={index} className="whitespace-pre-wrap text-sm">
+                                            <li
+                                                key={getReasoningStepKey(step, index)}
+                                                className="whitespace-pre-wrap text-sm"
+                                            >
                                                 {step}
                                             </li>
                                         ))}

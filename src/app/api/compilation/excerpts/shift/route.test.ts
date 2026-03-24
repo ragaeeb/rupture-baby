@@ -3,13 +3,13 @@ import { describe, expect, it, mock } from 'bun:test';
 import { MissingPathConfigError } from '@/lib/data-paths';
 
 const state = {
+    buildShiftPayload: () => ({ payload: 'ok', shiftCount: 1, usedTokens: 5 }),
     getShiftCache: async () => ({
+        filePath: '/tmp/a.json',
+        mtimeMs: 1,
         prompt: 'prompt',
         queue: [{ id: '1', nass: 'a' }],
-        mtimeMs: 1,
-        filePath: '/tmp/a.json',
     }),
-    buildShiftPayload: () => ({ payload: 'ok', shiftCount: 1, usedTokens: 5 }),
     shiftedCount: -1,
 };
 
@@ -28,10 +28,10 @@ const { GET } = await import('./route');
 describe('GET /api/compilation/excerpts/shift', () => {
     it('should return shift payload text', async () => {
         state.getShiftCache = async () => ({
+            filePath: '/tmp/a.json',
+            mtimeMs: 1,
             prompt: 'prompt',
             queue: [{ id: '1', nass: 'a' }],
-            mtimeMs: 1,
-            filePath: '/tmp/a.json',
         });
         state.buildShiftPayload = () => ({ payload: 'payload-text', shiftCount: 1, usedTokens: 7 });
         state.shiftedCount = -1;

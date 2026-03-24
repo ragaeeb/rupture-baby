@@ -2,7 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import { MissingPathConfigError } from '@/lib/data-paths';
 
-const state = { model: { id: 'm1', label: 'Model', provider: 'openai' }, excerpts: [{ id: '1', nass: 'abc' }] };
+const state = { excerpts: [{ id: '1', nass: 'abc' }], model: { id: 'm1', label: 'Model', provider: 'openai' } };
 
 mock.module('bitaboom', () => ({ estimateTokenCount: (text: string) => text.length }));
 
