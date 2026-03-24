@@ -10,14 +10,33 @@ import { parseTranslationToCommon } from '@/lib/translation-parser';
 import type { CommonConversationExport } from '@/lib/translation-types';
 
 // Promise cache to ensure each file is only fetched once
-const fileCache = new Map<string, Promise<unknown>>();
+const FILE_CACHE_TTL_MS = 30_000;
+const fileCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
+
+const pruneStaleFileCacheEntries = (now: number) => {
+    for (const [filePath, entry] of fileCache.entries()) {
+        if (entry.expiresAt <= now) {
+            fileCache.delete(filePath);
+        }
+    }
+};
 
 const getFileData = (filePath: string) => {
-    let promise = fileCache.get(filePath);
-    if (!promise) {
-        promise = fetchTranslationFile(filePath);
-        fileCache.set(filePath, promise);
+    const now = Date.now();
+    pruneStaleFileCacheEntries(now);
+
+    const cachedEntry = fileCache.get(filePath);
+    if (cachedEntry && cachedEntry.expiresAt > now) {
+        return cachedEntry.promise;
     }
+
+    const promise = fetchTranslationFile(filePath).catch((error) => {
+        fileCache.delete(filePath);
+        throw error;
+    });
+
+    fileCache.set(filePath, { expiresAt: now + FILE_CACHE_TTL_MS, promise });
+
     return promise;
 };
 

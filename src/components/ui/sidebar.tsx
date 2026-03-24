@@ -42,9 +42,10 @@ const persistSidebarState = (openState: boolean) => {
         return;
     }
 
-    Document.prototype
-        .__lookupSetter__('cookie')
-        ?.call(document, `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`);
+    Object.getOwnPropertyDescriptor(Document.prototype, 'cookie')?.set?.call(
+        document,
+        `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`,
+    );
 };
 
 function useSidebar() {
