@@ -12,6 +12,7 @@
         "paths": {
             "@/*": ["./src/*"]
         },
+        "types": ["bun", "node"],
         "plugins": [
             {
                 "name": "next"

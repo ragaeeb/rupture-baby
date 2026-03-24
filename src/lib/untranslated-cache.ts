@@ -2,8 +2,8 @@ import { createReadStream, promises as fs } from 'node:fs';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { parser } from 'stream-json';
-import { pick } from 'stream-json/filters/Pick';
-import { streamArray } from 'stream-json/streamers/StreamArray';
+import pick from 'stream-json/filters/pick.js';
+import streamArray from 'stream-json/streamers/stream-array.js';
 
 import type { Excerpt } from '@/lib/compilation';
 import { requireCompilationFilePath } from '@/lib/data-paths';
@@ -47,9 +47,9 @@ const loadUntranslatedByKey = async (
 ): Promise<Excerpt[]> => {
     const untranslated: Excerpt[] = [];
     const excerptStream = getInputStream(filePath)
-        .pipe(parser())
-        .pipe(pick({ filter: key }))
-        .pipe(streamArray());
+        .pipe(parser.asStream())
+        .pipe(pick.asStream({ filter: key }))
+        .pipe(streamArray.asStream());
 
     for await (const entry of excerptStream as AsyncIterable<{ key: number; value: Partial<Excerpt> }>) {
         if (isUntranslated(entry.value)) {

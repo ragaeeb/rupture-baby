@@ -70,8 +70,8 @@
     },
     "scripts": {
         "build": "next build",
-        "dev": "exec bun --bun next dev -p 9000 --webpack",
-        "dev:turbo": "exec bun --bun next dev -p 9000",
+        "dev": "bun --bun next dev -p 9000 --webpack",
+        "dev:turbo": "bun --bun next dev -p 9000",
         "format": "biome format --write",
         "lint": "biome check",
         "start": "bun --bun next start -p 9000"

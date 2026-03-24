@@ -2,9 +2,9 @@ import { createReadStream, promises as fs } from 'node:fs';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { parser } from 'stream-json';
-import { pick } from 'stream-json/filters/Pick';
-import { streamArray } from 'stream-json/streamers/StreamArray';
-import { streamValues } from 'stream-json/streamers/StreamValues';
+import pick from 'stream-json/filters/pick.js';
+import streamArray from 'stream-json/streamers/stream-array.js';
+import streamValues from 'stream-json/streamers/stream-values.js';
 
 import { requireCompilationFilePath } from '@/lib/data-paths';
 import type { ShiftExcerpt } from '@/lib/shift-payload';
@@ -37,9 +37,9 @@ const getInputStream = (filePath: string): Readable => {
 
 const loadPrompt = async (filePath: string): Promise<string> => {
     const promptStream = getInputStream(filePath)
-        .pipe(parser())
-        .pipe(pick({ filter: 'promptForTranslation' }))
-        .pipe(streamValues());
+        .pipe(parser.asStream())
+        .pipe(pick.asStream({ filter: 'promptForTranslation' }))
+        .pipe(streamValues.asStream());
 
     for await (const entry of promptStream as AsyncIterable<{ key: number; value: unknown }>) {
         if (typeof entry.value === 'string') {
@@ -53,9 +53,9 @@ const loadPrompt = async (filePath: string): Promise<string> => {
 const loadUntranslatedQueue = async (filePath: string): Promise<ShiftExcerpt[]> => {
     const queue: ShiftExcerpt[] = [];
     const excerptStream = getInputStream(filePath)
-        .pipe(parser())
-        .pipe(pick({ filter: 'excerpts' }))
-        .pipe(streamArray());
+        .pipe(parser.asStream())
+        .pipe(pick.asStream({ filter: 'excerpts' }))
+        .pipe(streamArray.asStream());
 
     for await (const entry of excerptStream as AsyncIterable<{
         key: number;

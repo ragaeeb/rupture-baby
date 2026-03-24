@@ -16,9 +16,9 @@ It serves Arabic excerpts that need translation and stores translation updates a
 
 ## Key Paths
 
-- API route: `/Users/rhaq/workspace/rupture-baby/src/app/api/compilation/excerpts/route.ts`
-- Types: `/Users/rhaq/workspace/rupture-baby/src/lib/compilation.ts`
-- Main page (health check): `/Users/rhaq/workspace/rupture-baby/src/app/page.tsx`
+- API route: `src/app/api/compilation/excerpts/route.ts`
+- Types: `src/lib/compilation.ts`
+- Main page (health check): `src/app/page.tsx`
 - Data file env: `COMPILATION_FILE_PATH` (required)
 - Translations dir env: `TRANSLATIONS_DIR` (required)
 

@@ -73,11 +73,40 @@ const readDirectoryTree = async (
     return output;
 };
 
+const getLatestTreeMtimeMs = async (currentDirectory: string): Promise<number> => {
+    const directoryStats = await stat(currentDirectory);
+    let latestMtimeMs = directoryStats.mtimeMs;
+    const directoryEntries = await readdir(currentDirectory, { withFileTypes: true });
+
+    for (const entry of directoryEntries) {
+        const entryPath = path.join(currentDirectory, entry.name);
+
+        if (entry.isDirectory()) {
+            const childLatestMtimeMs = await getLatestTreeMtimeMs(entryPath);
+            if (childLatestMtimeMs > latestMtimeMs) {
+                latestMtimeMs = childLatestMtimeMs;
+            }
+            continue;
+        }
+
+        if (!entry.isFile()) {
+            continue;
+        }
+
+        const entryStats = await stat(entryPath);
+        if (entryStats.mtimeMs > latestMtimeMs) {
+            latestMtimeMs = entryStats.mtimeMs;
+        }
+    }
+
+    return latestMtimeMs;
+};
+
 export const getTranslationTree = async (): Promise<TranslationTreeResponse> => {
     const translationsDirectory = requireTranslationsDir();
-    const directoryStats = await stat(translationsDirectory);
+    const directoryMtimeMs = await getLatestTreeMtimeMs(translationsDirectory);
 
-    if (cachedTree && cachedTree.directoryMtimeMs === directoryStats.mtimeMs) {
+    if (cachedTree && cachedTree.directoryMtimeMs === directoryMtimeMs) {
         return cachedTree.tree;
     }
 
@@ -85,7 +114,7 @@ export const getTranslationTree = async (): Promise<TranslationTreeResponse> => 
     const entries = await readDirectoryTree(translationsDirectory, '');
     const nextTree: TranslationTreeResponse = { entries, rootName, rootRelativePath: '' };
 
-    cachedTree = { directoryMtimeMs: directoryStats.mtimeMs, tree: nextTree };
+    cachedTree = { directoryMtimeMs, tree: nextTree };
 
     return nextTree;
 };

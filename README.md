@@ -51,7 +51,7 @@ If these env vars are not configured on the server, compilation/shift and transl
 ## Development
 
 Prerequisites:
-- Bun `>=1.3.9`
+- Bun `>=1.3.11`
 
 Install:
 
@@ -68,8 +68,8 @@ bun dev
 Environment:
 
 ```bash
-COMPILATION_FILE_PATH=/Users/rhaq/workspace/compilations/1119.json
-TRANSLATIONS_DIR=/Users/rhaq/workspace/compilations/translations
+COMPILATION_FILE_PATH=/Users/user/workspace/compilations/1119.json
+TRANSLATIONS_DIR=/Users/user/workspace/compilations/translations
 ```
 
 Type-check:
