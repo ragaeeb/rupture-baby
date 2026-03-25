@@ -1,7 +1,10 @@
+import { parseTranslationsInOrder } from 'wobble-bibble';
+import type { AITranslator, Excerpt } from './compilation';
 import type {
+    AIModel,
     BlackiyaOriginal,
     CommonConversationExport,
-    GrokMassExport,
+    GrokSingleConversation,
     LegacyWrapper,
     Message,
     MessageNode,
@@ -38,24 +41,35 @@ const inferProviderFromModel = (modelSlug: string): string => {
     return 'Unknown';
 };
 
-const extractModelFromMessage = (message: Message): string | undefined =>
+const extractModelFromMessage = (message: Message) =>
     normalizeModel((message.metadata as Record<string, unknown>)?.resolved_model_slug) ||
     normalizeModel((message.metadata as Record<string, unknown>)?.model_slug) ||
     normalizeModel((message.metadata as Record<string, unknown>)?.default_model_slug) ||
     normalizeModel((message.metadata as Record<string, unknown>)?.model);
 
-const extractModel = (conversation: BlackiyaOriginal, chain: Message[]): string | undefined => {
+const extractModel = (conversation: BlackiyaOriginal, chain: Message[]): AIModel => {
+    let model = normalizeModel(conversation.default_model_slug);
+
     for (let i = chain.length - 1; i >= 0; i -= 1) {
         const message = chain[i];
+
         if (message.author?.role !== 'assistant') {
             continue;
         }
+
         const metadataModel = extractModelFromMessage(message);
+
         if (metadataModel) {
-            return metadataModel;
+            model = metadataModel;
+            break;
         }
     }
-    return normalizeModel(conversation.default_model_slug);
+
+    if (!model) {
+        throw new Error('Could not detect model');
+    }
+
+    return model as AIModel;
 };
 
 const inferLlmName = (conversation: BlackiyaOriginal, chain: Message[]): string => {
@@ -283,26 +297,20 @@ const convertBlackiyaOriginalToCommon = (
     };
 };
 
-const parseGrokMassExport = (data: GrokMassExport): CommonConversationExport[] => {
-    if (!Array.isArray(data.conversations)) {
-        return [];
-    }
+const parseGrokConversation = (data: GrokSingleConversation): CommonConversationExport => {
+    const response = data.responses.length > 0 ? data.responses[data.responses.length - 1].response.message : '';
 
-    return data.conversations.map((conv) => {
-        const response = conv.responses.length > 0 ? conv.responses[conv.responses.length - 1].response.message : '';
-
-        return {
-            conversation_id: conv.conversation.id,
-            created_at: conv.conversation.create_time,
-            format: COMMON_FORMAT_VALUE,
-            llm: 'Grok',
-            prompt: '',
-            reasoning: [],
-            response,
-            title: conv.conversation.title || undefined,
-            updated_at: conv.conversation.modify_time,
-        };
-    });
+    return {
+        conversation_id: data.conversation.id,
+        created_at: data.conversation.create_time,
+        format: COMMON_FORMAT_VALUE,
+        llm: 'Grok',
+        prompt: '',
+        reasoning: [],
+        response,
+        title: data.conversation.title || undefined,
+        updated_at: data.conversation.modify_time,
+    };
 };
 
 const isBlackiyaOriginal = (data: unknown): data is BlackiyaOriginal => {
@@ -326,12 +334,23 @@ const isBlackiyaOriginal = (data: unknown): data is BlackiyaOriginal => {
     );
 };
 
-const isGrokMassExport = (data: unknown): data is GrokMassExport => {
+const isGrokConversation = (data: unknown): data is GrokSingleConversation => {
     if (typeof data !== 'object' || data === null) {
         return false;
     }
     const obj = data as Record<string, unknown>;
-    return Array.isArray(obj.conversations);
+    // Check for the structure of a single conversation (no array wrapper)
+    if (!obj.conversation || typeof obj.conversation !== 'object') {
+        return false;
+    }
+    const conv = obj.conversation as Record<string, unknown>;
+    if (typeof conv.id !== 'string') {
+        return false;
+    }
+    if (!Array.isArray(obj.responses)) {
+        return false;
+    }
+    return true;
 };
 
 const isLegacyWrapper = (data: unknown): data is LegacyWrapper => {
@@ -358,24 +377,24 @@ const resolveBlackiyaMeta = (payload: unknown): Record<string, unknown> | null =
     return null;
 };
 
-const parseLegacyWrapper = (data: LegacyWrapper): CommonConversationExport[] | null => {
+const parseLegacyWrapper = (data: LegacyWrapper): CommonConversationExport | null => {
     if (data.format === 'original' && isBlackiyaOriginal(data.data)) {
         const common = convertBlackiyaOriginalToCommon(data.data);
         const blackiyaMeta = resolveBlackiyaMeta(data);
         if (blackiyaMeta) {
-            return [{ ...common, __blackiya: blackiyaMeta }];
+            return { ...common, __blackiya: blackiyaMeta };
         }
-        return [common];
+        return common;
     }
 
     if (isBlackiyaOriginal(data.payload)) {
-        return [convertBlackiyaOriginalToCommon(data.payload)];
+        return convertBlackiyaOriginalToCommon(data.payload);
     }
 
     if (typeof data.data === 'object' && data.data !== null) {
         const dataObj = data.data as Record<string, unknown>;
         if (isBlackiyaOriginal(dataObj.payload)) {
-            return [convertBlackiyaOriginalToCommon(dataObj.payload as BlackiyaOriginal)];
+            return convertBlackiyaOriginalToCommon(dataObj.payload as BlackiyaOriginal);
         }
     }
 
@@ -388,13 +407,14 @@ const isCommonConversationExport = (data: unknown): data is CommonConversationEx
     'format' in data &&
     (data as CommonConversationExport).format === 'common';
 
-export const parseTranslationToCommon = (data: unknown): CommonConversationExport[] => {
-    if (isGrokMassExport(data)) {
-        return parseGrokMassExport(data);
+export const parseTranslationToCommon = (data: unknown): CommonConversationExport => {
+    // Check for Grok conversation first (most common format)
+    if (isGrokConversation(data)) {
+        return parseGrokConversation(data);
     }
 
     if (isBlackiyaOriginal(data)) {
-        return [convertBlackiyaOriginalToCommon(data)];
+        return convertBlackiyaOriginalToCommon(data);
     }
 
     if (isLegacyWrapper(data)) {
@@ -405,8 +425,62 @@ export const parseTranslationToCommon = (data: unknown): CommonConversationExpor
     }
 
     if (isCommonConversationExport(data)) {
-        return [data];
+        return data;
     }
 
     throw new Error('Input does not match a supported translation JSON shape.');
+};
+
+const mapTranslatorToId = (model: AIModel): AITranslator => {
+    if (model === 'gemini-3-pro') {
+        return 901;
+    }
+
+    if (model === 'gpt-5-4-pro') {
+        return 903;
+    }
+
+    if (model === 'gpt-5-4-thinking') {
+        return 900;
+    }
+
+    if (model === 'grok-4') {
+        return 895;
+    }
+
+    throw new Error(`Invalid model: ${model}`);
+};
+
+export const mapConversationToExcerpts = (c: CommonConversationExport): Excerpt[] => {
+    const arabic = c.prompt.substring(c.prompt.indexOf('\n\n')).trim();
+    const arabicSegments = parseTranslationsInOrder(arabic);
+    const translatedSegments = parseTranslationsInOrder(c.response);
+
+    if (arabicSegments.length !== translatedSegments.length) {
+        console.error('ONVALID', arabicSegments);
+        console.error('translatedSegments', translatedSegments);
+        return [];
+    }
+
+    const areIdsOrdered = arabicSegments.every((e, i) => {
+        return e.id === translatedSegments[i].id;
+    });
+
+    if (!areIdsOrdered) {
+        console.error('areIdsOrdered', arabicSegments);
+        console.error('translatedSegments', translatedSegments);
+        return [];
+    }
+
+    const excerpts = arabicSegments.map((e, i) => {
+        return {
+            from: 0,
+            id: e.id,
+            nass: e.translation,
+            text: translatedSegments[i].translation,
+            translator: mapTranslatorToId(c.model!),
+        } satisfies Excerpt;
+    });
+
+    return excerpts;
 };

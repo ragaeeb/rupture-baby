@@ -2,11 +2,11 @@ export type ExcerptType = 'book' | 'chapter';
 
 export type ExcerptMetadata = { type?: ExcerptType; num?: string };
 
-export type AITranslator = 879 | 890 | 893 | 895;
+export type AITranslator = 879 | 890 | 893 | 895 | 900 | 901 | 903;
 
 export type AITranslation = { text?: string; translator?: AITranslator; lastUpdatedAt?: number };
 
-export type IndexedExcerpt = { from: number; to: number; nass: string; meta?: ExcerptMetadata; id: string };
+export type IndexedExcerpt = { from: number; to?: number; nass: string; meta?: ExcerptMetadata; id: string };
 
 export type Excerpt = IndexedExcerpt & AITranslation;
 

@@ -7,13 +7,18 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { fetchTranslationTree } from '@/lib/shell-api';
 import type { TranslationTreeNode, TranslationTreeResponse } from '@/lib/shell-types';
 
-const findFirstJsonFilePath = (entries: TranslationTreeNode[]): string | null => {
+const findFirstJsonFilePath = (entries: TranslationTreeNode[], parentPath = ''): string | null => {
     for (const entry of entries) {
+        // Only return actual files, not conversation sub-items
         if (entry.kind === 'file') {
+            // Skip conversation sub-paths (they contain '/')
+            if (entry.relativePath.includes('/')) {
+                continue;
+            }
             return entry.relativePath;
         }
         if (entry.children?.length) {
-            const nestedPath = findFirstJsonFilePath(entry.children);
+            const nestedPath = findFirstJsonFilePath(entry.children, entry.relativePath);
             if (nestedPath) {
                 return nestedPath;
             }

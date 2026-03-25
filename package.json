@@ -8,6 +8,7 @@
     },
     "dependencies": {
         "@radix-ui/react-accordion": "^1.2.12",
+        "@radix-ui/react-dialog": "^1.1.15",
         "bitaboom": "^2.5.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -74,6 +75,8 @@
         "dev:turbo": "bun --bun next dev -p 9000",
         "format": "biome format --write && biome check --write",
         "lint": "biome check",
+        "split-conversations": "bun run scripts/split-conversations.ts",
+        "split-conversations:write": "bun run scripts/split-conversations.ts --write",
         "start": "bun --bun next start -p 9000"
     },
     "version": "1.1.0"

@@ -5,6 +5,8 @@
 
 export const COMMON_FORMAT = 'common' as const;
 
+export type AIModel = 'gemini-3-pro' | 'grok-4' | 'gpt-5-4-thinking' | 'gpt-5-4-pro';
+
 /**
  * Normalized conversation export with prompt, response, and reasoning.
  */
@@ -14,7 +16,7 @@ export type CommonConversationExport = {
     /** Platform name (e.g., 'Grok', 'ChatGPT', 'Gemini') */
     llm: string;
     /** Specific model name if available */
-    model?: string;
+    model?: AIModel;
     /** Conversation title */
     title?: string;
     /** Unique conversation ID */
@@ -34,36 +36,34 @@ export type CommonConversationExport = {
 };
 
 /**
- * Grok mass-export format - contains array of conversations.
- * Each conversation has a wrapper with metadata.
+ * Single Grok conversation format (after splitting from mass export).
+ * This is a single conversation object without the wrapper array.
  */
-export type GrokMassExport = {
-    conversations: Array<{
-        conversation: {
-            id: string;
-            user_id: string;
-            anon_user_id: string | null;
-            create_time: string; // ISO timestamp
-            modify_time: string; // ISO timestamp
-            system_prompt_id: string | null;
-            temporary: boolean;
-            leaf_response_id: string | null;
-            title: string;
-            summary: string;
-            asset_ids: unknown[];
-            root_asset_id: string | null;
-            x_user_id: string | null;
-            starred: boolean;
-            system_prompt_name: string;
-            media_types: unknown[];
-            controller: string | null;
-            task_result_id: string | null;
-            team_id: string | null;
-            shared_with_team: string | null;
-            shared_with_user_ids: string | null;
-        };
-        responses: Array<{ response: { _id: string; conversation_id: string; message: string } }>;
-    }>;
+export type GrokSingleConversation = {
+    conversation: {
+        id: string;
+        user_id: string;
+        anon_user_id: string | null;
+        create_time: string; // ISO timestamp
+        modify_time: string; // ISO timestamp
+        system_prompt_id: string | null;
+        temporary: boolean;
+        leaf_response_id: string | null;
+        title: string;
+        summary: string;
+        asset_ids: unknown[];
+        root_asset_id: string | null;
+        x_user_id: string | null;
+        starred: boolean;
+        system_prompt_name: string;
+        media_types: unknown[];
+        controller: string | null;
+        task_result_id: string | null;
+        team_id: string | null;
+        shared_with_team: string | null;
+        shared_with_user_ids: string | null;
+    };
+    responses: Array<{ response: { _id: string; conversation_id: string; message: string } }>;
 };
 
 /**
@@ -143,6 +143,6 @@ export type LegacyWrapper = {
  */
 export type TranslationInput =
     | CommonConversationExport
-    | GrokMassExport
+    | GrokSingleConversation
     | BlackiyaOriginal
     | (LegacyWrapper & { data?: unknown; payload?: unknown });

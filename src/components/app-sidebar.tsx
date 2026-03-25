@@ -91,8 +91,7 @@ type TreeProps = { item: TranslationTreeNode; selectedFilePath?: string | null }
 
 const Tree = ({ item, selectedFilePath }: TreeProps) => {
     if (item.kind === 'file') {
-        const encodedPath = encodeURIComponent(item.relativePath);
-        const href = `/translations/${encodedPath}`;
+        const href = `/translations/${encodeURIComponent(item.relativePath)}`;
         return (
             <SidebarMenuItem>
                 <SidebarMenuButton

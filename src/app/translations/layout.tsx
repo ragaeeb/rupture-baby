@@ -16,12 +16,13 @@ export default function TranslationsLayout({ children }: { children: React.React
     const [treeError, setTreeError] = useState<string | null>(null);
 
     // Extract selected file path from the pathname /translations/[fileNameId]
-    // React Compiler will memoize this automatically
     const match = pathname.match(/^\/translations\/(.+)$/);
     let selectedFilePath: string | null = null;
+    let displayName = 'Translation file';
     if (match?.[1]) {
         try {
             selectedFilePath = decodeURIComponent(match[1]);
+            displayName = selectedFilePath.split('/').pop() || 'Translation file';
         } catch {
             // Invalid encoding, leave as null
         }
@@ -67,11 +68,8 @@ export default function TranslationsLayout({ children }: { children: React.React
                     <Breadcrumb className="min-w-0 flex-1">
                         <BreadcrumbList className="min-w-0 flex-nowrap">
                             <BreadcrumbItem className="min-w-0">
-                                <BreadcrumbPage
-                                    className="block truncate"
-                                    title={selectedFilePath || 'Translation file'}
-                                >
-                                    {selectedFilePath ? selectedFilePath.split('/').pop() : 'Translation file'}
+                                <BreadcrumbPage className="block truncate" title={displayName}>
+                                    {displayName}
                                 </BreadcrumbPage>
                             </BreadcrumbItem>
                         </BreadcrumbList>
