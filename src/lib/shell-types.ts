@@ -1,3 +1,5 @@
+import type { RupturePatchMetadata } from '@/lib/translation-patches';
+
 export type TranslationTreeNode = {
     kind: 'directory' | 'file';
     name: string;
@@ -46,3 +48,26 @@ export type AppMetaResponse = {
 };
 
 export type PromptOption = { content: string; id: string; name: string };
+
+export type ArabicLeakCorrectionExcerpt = { arabic: string; id: string; translation: string };
+
+export type ArabicLeakCorrection = { id: string; match: string; replacement: string };
+
+export type TranslationAssistScope = 'file';
+export type TranslationAssistTask = 'arabic_leak_correction';
+
+export type TranslationAssistRequest = {
+    excerpts: ArabicLeakCorrectionExcerpt[];
+    scope: 'file';
+    task: 'arabic_leak_correction';
+};
+
+export type TranslationAssistResponse = {
+    corrections: ArabicLeakCorrection[];
+    model: string;
+    modelVersion?: string;
+    patchMetadata: RupturePatchMetadata;
+    provider: 'google';
+    scope: 'file';
+    task: 'arabic_leak_correction';
+};

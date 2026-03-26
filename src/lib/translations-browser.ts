@@ -4,7 +4,12 @@ import path from 'node:path';
 
 import { MissingPathConfigError, requireCompilationFilePath, requireTranslationsDir } from '@/lib/data-paths';
 import { mapConversationToExcerpts, parseTranslationToCommon } from './translation-parser';
-import { normalizeRupturePatchesForSegments, type RupturePatch } from './translation-patches';
+import {
+    isRupturePatchMetadata,
+    normalizeRupturePatchesForSegments,
+    type RupturePatch,
+    type RupturePatchMetadata,
+} from './translation-patches';
 import { parseTranslationsInOrder } from './validation/textUtils';
 
 export type TranslationTreeNode = {
@@ -155,7 +160,62 @@ export const readTranslationJsonFile = async (rawRelativePath: string) => {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
 
-export const writeTranslationPatch = async (rawRelativePath: string, excerptId: string, patch: RupturePatch | null) => {
+const getNextPatchMetadata = (
+    currentPatchMetadata: unknown,
+    nextPatches: Record<string, RupturePatch>,
+    excerptId: string,
+    patch: RupturePatch | null,
+    patchMetadata?: RupturePatchMetadata,
+) => {
+    const nextPatchMetadata: Record<string, RupturePatchMetadata> = {};
+
+    for (const [key, value] of Object.entries(isRecord(currentPatchMetadata) ? currentPatchMetadata : {})) {
+        if (key in nextPatches && isRupturePatchMetadata(value)) {
+            nextPatchMetadata[key] = value;
+        }
+    }
+
+    if (patch && patchMetadata) {
+        nextPatchMetadata[excerptId] = patchMetadata;
+    } else {
+        delete nextPatchMetadata[excerptId];
+    }
+
+    return nextPatchMetadata;
+};
+
+const setRuptureMetadata = (
+    nextContent: Record<string, unknown>,
+    nextRupture: Record<string, unknown>,
+    nextPatches: Record<string, RupturePatch>,
+    nextPatchMetadata: Record<string, RupturePatchMetadata>,
+) => {
+    if (Object.keys(nextPatches).length > 0) {
+        nextRupture.patches = nextPatches;
+        if (Object.keys(nextPatchMetadata).length > 0) {
+            nextRupture.patchMetadata = nextPatchMetadata;
+        } else {
+            delete nextRupture.patchMetadata;
+        }
+        nextContent.__rupture = nextRupture;
+        return;
+    }
+
+    delete nextRupture.patches;
+    delete nextRupture.patchMetadata;
+    if (Object.keys(nextRupture).length > 0) {
+        nextContent.__rupture = nextRupture;
+    } else {
+        delete nextContent.__rupture;
+    }
+};
+
+export const writeTranslationPatch = async (
+    rawRelativePath: string,
+    excerptId: string,
+    patch: RupturePatch | null,
+    patchMetadata?: RupturePatchMetadata,
+) => {
     const translationsDir = requireTranslationsDir();
     const relativePath = normalizeRelativePath(rawRelativePath);
 
@@ -196,18 +256,15 @@ export const writeTranslationPatch = async (rawRelativePath: string, excerptId: 
     }
 
     const nextPatches = normalizeRupturePatchesForSegments(baseTranslatedSegments, rawNextPatches) ?? {};
+    const nextPatchMetadata = getNextPatchMetadata(
+        nextRupture.patchMetadata,
+        nextPatches,
+        excerptId,
+        patch,
+        patchMetadata,
+    );
 
-    if (Object.keys(nextPatches).length > 0) {
-        nextRupture.patches = nextPatches;
-        nextContent.__rupture = nextRupture;
-    } else {
-        delete nextRupture.patches;
-        if (Object.keys(nextRupture).length > 0) {
-            nextContent.__rupture = nextRupture;
-        } else {
-            delete nextContent.__rupture;
-        }
-    }
+    setRuptureMetadata(nextContent, nextRupture, nextPatches, nextPatchMetadata);
 
     const tempPath = `${absolutePath}.${randomUUID()}.tmp`;
     await mkdir(path.dirname(absolutePath), { recursive: true });

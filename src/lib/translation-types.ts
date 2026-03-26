@@ -3,7 +3,7 @@
  * This is the unified format all translation files are converted to.
  */
 
-import type { RupturePatches } from './translation-patches';
+import type { RupturePatches, RupturePatchMetadataMap } from './translation-patches';
 
 export const COMMON_FORMAT = 'common' as const;
 
@@ -36,7 +36,7 @@ export type CommonConversationExport = {
     /** Optional Blackiya metadata for legacy exports */
     __blackiya?: Record<string, unknown>;
     /** Optional Rupture metadata for file-level patches */
-    __rupture?: { patches?: RupturePatches };
+    __rupture?: { patchMetadata?: RupturePatchMetadataMap; patches?: RupturePatches };
 };
 
 /**

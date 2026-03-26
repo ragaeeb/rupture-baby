@@ -1,11 +1,14 @@
 import type {
     AppMetaResponse,
+    ArabicLeakCorrectionExcerpt,
     DashboardStatsResponse,
+    TranslationAssistRequest,
+    TranslationAssistResponse,
     TranslationFileResponse,
     TranslationStats,
     TranslationTreeResponse,
 } from '@/lib/shell-types';
-import type { RupturePatch } from '@/lib/translation-patches';
+import type { RupturePatch, RupturePatchMetadata } from '@/lib/translation-patches';
 
 let cachedTranslationTree: TranslationTreeResponse | null = null;
 let cachedDashboardStats: DashboardStatsResponse | null = null;
@@ -56,15 +59,34 @@ export const updateTranslationFilePatch = async (
     relativePath: string,
     excerptId: string,
     patch: RupturePatch | null,
+    patchMetadata?: RupturePatchMetadata,
 ): Promise<TranslationFileResponse> => {
     const baseUrl = getBaseUrl();
     const query = new URLSearchParams({ path: relativePath });
     const response = await fetch(`${baseUrl}/api/translations/file?${query.toString()}`, {
-        body: JSON.stringify({ excerptId, patch }),
+        body: JSON.stringify({ excerptId, patch, patchMetadata }),
         headers: { 'Content-Type': 'application/json' },
         method: 'PATCH',
     });
     return readJson<TranslationFileResponse>(response);
+};
+
+export const requestTranslationAssist = async (
+    request: TranslationAssistRequest,
+): Promise<TranslationAssistResponse> => {
+    const baseUrl = getBaseUrl();
+    const response = await fetch(`${baseUrl}/api/translations/assist`, {
+        body: JSON.stringify(request),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+    });
+    return readJson<TranslationAssistResponse>(response);
+};
+
+export const requestArabicLeakCorrections = async (
+    excerpts: ArabicLeakCorrectionExcerpt[],
+): Promise<TranslationAssistResponse> => {
+    return requestTranslationAssist({ excerpts, scope: 'file', task: 'arabic_leak_correction' });
 };
 
 export const getCachedDashboardStats = () => cachedDashboardStats;

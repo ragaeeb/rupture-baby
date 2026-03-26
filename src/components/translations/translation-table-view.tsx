@@ -1,5 +1,6 @@
 'use client';
 
+import { Wrench } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
 import { ClickToEditText } from '@/components/translations/click-to-edit-text';
@@ -176,11 +177,20 @@ const TranslationRow = ({
 };
 
 type TranslationTableViewProps = {
+    arabicLeakFixError: string | null;
+    isFixingArabicLeaks: boolean;
     model: TranslationTableModel | null;
+    onAutoFixArabicLeaks: () => void;
     onDraftChange: (id: string, originalText: string, nextText: string) => void;
 };
 
-export const TranslationTableView = ({ model, onDraftChange }: TranslationTableViewProps) => {
+export const TranslationTableView = ({
+    arabicLeakFixError,
+    isFixingArabicLeaks,
+    model,
+    onAutoFixArabicLeaks,
+    onDraftChange,
+}: TranslationTableViewProps) => {
     const [editingRowId, setEditingRowId] = useState<string | null>(null);
 
     if (!model) {
@@ -202,21 +212,39 @@ export const TranslationTableView = ({ model, onDraftChange }: TranslationTableV
 
             {!model.isValid ? (
                 <div className="rounded-md border border-destructive/20 bg-destructive/5 p-4 text-sm">
-                    {model.hasAlignmentErrors ? (
-                        <>
-                            <p className="font-medium text-destructive">
-                                The translated response does not match the source excerpts.
-                            </p>
-                            <p className="mt-1 text-muted-foreground">
-                                Source IDs: {model.sourceIds.join(', ') || 'None'}
-                            </p>
-                            <p className="mt-1 text-muted-foreground">
-                                Response IDs: {model.responseIds.join(', ') || 'None'}
-                            </p>
-                        </>
-                    ) : (
-                        <p className="font-medium text-destructive">Errors found.</p>
-                    )}
+                    <div className="flex items-start justify-between gap-3">
+                        <div>
+                            {model.hasAlignmentErrors ? (
+                                <>
+                                    <p className="font-medium text-destructive">
+                                        The translated response does not match the source excerpts.
+                                    </p>
+                                    <p className="mt-1 text-muted-foreground">
+                                        Source IDs: {model.sourceIds.join(', ') || 'None'}
+                                    </p>
+                                    <p className="mt-1 text-muted-foreground">
+                                        Response IDs: {model.responseIds.join(', ') || 'None'}
+                                    </p>
+                                </>
+                            ) : (
+                                <p className="font-medium text-destructive">Errors found.</p>
+                            )}
+                            {arabicLeakFixError ? (
+                                <p className="mt-2 text-destructive text-xs">{arabicLeakFixError}</p>
+                            ) : null}
+                        </div>
+                        {model.arabicLeakExcerpts.length > 0 ? (
+                            <button
+                                className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-amber-400/40 bg-amber-50 px-3 font-medium text-amber-950 text-xs shadow-sm transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                disabled={isFixingArabicLeaks}
+                                onClick={onAutoFixArabicLeaks}
+                                type="button"
+                            >
+                                <Wrench className="mr-2 size-3.5" />
+                                {isFixingArabicLeaks ? 'Fixing Arabic leaks...' : 'Fix Arabic leaks'}
+                            </button>
+                        ) : null}
+                    </div>
                 </div>
             ) : null}
 

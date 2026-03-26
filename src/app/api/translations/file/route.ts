@@ -1,11 +1,41 @@
 import { NextResponse } from 'next/server';
 
 import { MissingPathConfigError } from '@/lib/data-paths';
-import { isRupturePatch } from '@/lib/translation-patches';
+import { isRupturePatch, isRupturePatchMetadata } from '@/lib/translation-patches';
 import { readTranslationJsonFile, writeTranslationPatch } from '@/lib/translations-browser';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const parsePatchRequestBody = (body: unknown) => {
+    if (typeof body !== 'object' || body === null) {
+        return { error: NextResponse.json({ error: 'Request body must be a JSON object.' }, { status: 400 }) };
+    }
+
+    const { excerptId, patch, patchMetadata } = body as {
+        excerptId?: unknown;
+        patch?: unknown;
+        patchMetadata?: unknown;
+    };
+    if (typeof excerptId !== 'string' || excerptId.trim().length === 0) {
+        return { error: NextResponse.json({ error: 'Field "excerptId" is required.' }, { status: 400 }) };
+    }
+    if (patch !== null && !isRupturePatch(patch)) {
+        return {
+            error: NextResponse.json({ error: 'Field "patch" must be a patch object or null.' }, { status: 400 }),
+        };
+    }
+    if (typeof patchMetadata !== 'undefined' && !isRupturePatchMetadata(patchMetadata)) {
+        return {
+            error: NextResponse.json(
+                { error: 'Field "patchMetadata" must be a valid patch metadata object.' },
+                { status: 400 },
+            ),
+        };
+    }
+
+    return { excerptId: excerptId.trim(), patch, patchMetadata };
+};
 
 export const GET = async (request: Request) => {
     const url = new URL(request.url);
@@ -44,20 +74,17 @@ export const PATCH = async (request: Request) => {
     }
 
     try {
-        const body = (await request.json()) as unknown;
-        if (typeof body !== 'object' || body === null) {
-            return NextResponse.json({ error: 'Request body must be a JSON object.' }, { status: 400 });
+        const parsedBody = parsePatchRequestBody((await request.json()) as unknown);
+        if ('error' in parsedBody) {
+            return parsedBody.error;
         }
 
-        const { excerptId, patch } = body as { excerptId?: unknown; patch?: unknown };
-        if (typeof excerptId !== 'string' || excerptId.trim().length === 0) {
-            return NextResponse.json({ error: 'Field "excerptId" is required.' }, { status: 400 });
-        }
-        if (patch !== null && !isRupturePatch(patch)) {
-            return NextResponse.json({ error: 'Field "patch" must be a patch object or null.' }, { status: 400 });
-        }
-
-        const file = await writeTranslationPatch(filePath, excerptId.trim(), patch);
+        const file = await writeTranslationPatch(
+            filePath,
+            parsedBody.excerptId,
+            parsedBody.patch,
+            parsedBody.patchMetadata,
+        );
         return NextResponse.json(file);
     } catch (error) {
         if (error instanceof MissingPathConfigError) {

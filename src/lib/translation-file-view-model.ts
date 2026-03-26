@@ -1,3 +1,4 @@
+import type { ArabicLeakCorrection, ArabicLeakCorrectionExcerpt } from './shell-types';
 import { validateConversationExcerpts } from './translation-parser';
 import {
     applyRupturePatchesToResponse,
@@ -7,6 +8,7 @@ import {
     normalizeRupturePatchesForSegments,
     type RupturePatch,
     type RupturePatches,
+    type RupturePatchMetadata,
 } from './translation-patches';
 import type { CommonConversationExport } from './translation-types';
 import { parseTranslationsInOrder } from './validation/textUtils';
@@ -14,7 +16,7 @@ import type { Range, ValidationError } from './validation/types';
 
 export type FileViewMode = 'table' | 'json' | 'normal';
 
-export type PendingEdit = { patch: RupturePatch };
+export type PendingEdit = { metadata?: RupturePatchMetadata; patch: RupturePatch };
 
 export type PendingEditMap = Record<string, PendingEdit>;
 
@@ -31,6 +33,7 @@ export type TranslationRowData = {
 };
 
 export type TranslationTableModel = {
+    arabicLeakExcerpts: ArabicLeakCorrectionExcerpt[];
     hasAlignmentErrors: boolean;
     hasPatches: boolean;
     isValid: boolean;
@@ -44,6 +47,39 @@ const ALIGNMENT_ERROR_TYPES = new Set<ValidationError['type']>(['duplicate_id', 
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const mergeRupturePatchMetadata = (
+    savedPatchMetadata: unknown,
+    pendingEdits: PendingEditMap,
+): Record<string, RupturePatchMetadata> => {
+    const mergedPatchMetadata: Record<string, RupturePatchMetadata> = {};
+
+    if (isRecord(savedPatchMetadata)) {
+        for (const [excerptId, metadata] of Object.entries(savedPatchMetadata)) {
+            if (
+                isRecord(metadata) &&
+                typeof metadata.appliedAt === 'string' &&
+                isRecord(metadata.source) &&
+                metadata.source.kind === 'llm' &&
+                typeof metadata.source.model === 'string' &&
+                metadata.source.provider === 'google' &&
+                metadata.source.task === 'arabic_leak_correction'
+            ) {
+                mergedPatchMetadata[excerptId] = metadata as RupturePatchMetadata;
+            }
+        }
+    }
+
+    for (const [excerptId, pendingEdit] of Object.entries(pendingEdits)) {
+        if (pendingEdit.metadata) {
+            mergedPatchMetadata[excerptId] = pendingEdit.metadata;
+        } else {
+            delete mergedPatchMetadata[excerptId];
+        }
+    }
+
+    return mergedPatchMetadata;
+};
 
 export const isFileViewMode = (value: string | null): value is FileViewMode =>
     value === 'table' || value === 'json' || value === 'normal';
@@ -117,6 +153,7 @@ export const updatePendingEdits = (
     excerptId: string,
     originalText: string,
     nextText: string,
+    metadata?: RupturePatchMetadata,
 ): PendingEditMap => {
     if (originalText === nextText) {
         if (!(excerptId in currentEdits)) {
@@ -133,7 +170,7 @@ export const updatePendingEdits = (
         return currentEdits;
     }
 
-    return { ...currentEdits, [excerptId]: { patch } };
+    return { ...currentEdits, [excerptId]: metadata ? { metadata, patch } : { patch } };
 };
 
 export const buildTranslationTableModel = (
@@ -154,6 +191,7 @@ export const buildTranslationTableModel = (
     const translatedById = new Map(translatedSegments.map((segment) => [segment.id, segment.text] as const));
     const errorsById = new Map<string, ValidationError[]>();
     const patchesById = mergedPatches ?? {};
+    const patchMetadataById = mergeRupturePatchMetadata(conversation.__rupture?.patchMetadata, pendingEdits);
 
     for (const error of validationErrors) {
         if (!error.id) {
@@ -170,6 +208,7 @@ export const buildTranslationTableModel = (
         const rowErrors = errorsById.get(segment.id) ?? [];
         const translatedText = excerpt?.text ?? translatedById.get(segment.id) ?? '';
         const patch = patchesById[segment.id];
+        const patchMetadata = patchMetadataById[segment.id];
 
         return {
             arabic: segment.text,
@@ -178,13 +217,17 @@ export const buildTranslationTableModel = (
             highlightRanges: rowErrors.flatMap((error) => (error.segmentRange ? [error.segmentRange] : [])),
             id: segment.id,
             isDirty: segment.id in pendingEdits,
-            patchHighlightRanges: patch ? getRupturePatchHighlightRanges(patch) : [],
+            patchHighlightRanges:
+                patchMetadata?.highlightRanges ?? (patch ? getRupturePatchHighlightRanges(patch) : []),
             translatedText,
             validationMessages: rowErrors.map((error) => error.message),
         };
     });
 
     return {
+        arabicLeakExcerpts: rows
+            .filter((row) => errorsById.get(row.id)?.some((error) => error.type === 'arabic_leak'))
+            .map((row) => ({ arabic: row.arabic, id: row.id, translation: row.translatedText })),
         hasAlignmentErrors: validationErrors.some((error) => ALIGNMENT_ERROR_TYPES.has(error.type)),
         hasPatches: rows.some((row) => row.hasPatch),
         isValid: validationErrors.length === 0,
@@ -193,4 +236,114 @@ export const buildTranslationTableModel = (
         rows,
         sourceIds: arabicSegments.map((segment) => segment.id),
     };
+};
+
+const countOccurrences = (text: string, needle: string) => {
+    if (!needle) {
+        return 0;
+    }
+
+    let count = 0;
+    let startIndex = 0;
+
+    while (startIndex <= text.length) {
+        const matchIndex = text.indexOf(needle, startIndex);
+        if (matchIndex === -1) {
+            return count;
+        }
+
+        count += 1;
+        startIndex = matchIndex + needle.length;
+    }
+
+    return count;
+};
+
+const replaceAllLiteral = (text: string, searchValue: string, replaceValue: string) => {
+    if (!searchValue) {
+        return { nextText: text, replacementCount: 0, replacementRanges: [] as Range[] };
+    }
+
+    let cursor = 0;
+    let nextText = '';
+    let replacementCount = 0;
+    const replacementRanges: Range[] = [];
+
+    while (cursor <= text.length) {
+        const matchIndex = text.indexOf(searchValue, cursor);
+        if (matchIndex === -1) {
+            nextText += text.slice(cursor);
+            return { nextText, replacementCount, replacementRanges };
+        }
+
+        nextText += text.slice(cursor, matchIndex);
+        const replacementStart = nextText.length;
+        nextText += replaceValue;
+        replacementRanges.push({ end: replacementStart + replaceValue.length, start: replacementStart });
+        replacementCount += 1;
+        cursor = matchIndex + searchValue.length;
+    }
+
+    return { nextText, replacementCount, replacementRanges };
+};
+
+export const applyArabicLeakCorrectionsToPendingEdits = (
+    model: TranslationTableModel | null,
+    currentEdits: PendingEditMap,
+    corrections: ArabicLeakCorrection[],
+    metadata: RupturePatchMetadata,
+) => {
+    if (!model) {
+        return { issues: ['Failed to parse conversation.'], nextEdits: currentEdits, updatedRowCount: 0 };
+    }
+
+    const rowsById = new Map(model.rows.map((row) => [row.id, row] as const));
+    const correctionsById = new Map<string, ArabicLeakCorrection[]>();
+
+    for (const correction of corrections) {
+        const existing = correctionsById.get(correction.id) ?? [];
+        existing.push(correction);
+        correctionsById.set(correction.id, existing);
+    }
+
+    let nextEdits = currentEdits;
+    const issues: string[] = [];
+    let updatedRowCount = 0;
+
+    for (const [excerptId, excerptCorrections] of correctionsById) {
+        const row = rowsById.get(excerptId);
+        if (!row) {
+            issues.push(`Received a correction for unknown excerpt ${excerptId}.`);
+            continue;
+        }
+
+        let nextText = row.translatedText;
+        let rowChanged = false;
+        const rowHighlightRanges: Range[] = [];
+
+        for (const correction of excerptCorrections) {
+            const occurrenceCount = countOccurrences(nextText, correction.match);
+            if (occurrenceCount === 0) {
+                issues.push(`Could not find "${correction.match}" in excerpt ${excerptId}.`);
+                continue;
+            }
+
+            const replacementResult = replaceAllLiteral(nextText, correction.match, correction.replacement);
+            nextText = replacementResult.nextText;
+            rowHighlightRanges.push(...replacementResult.replacementRanges);
+            rowChanged = true;
+        }
+
+        if (!rowChanged || nextText === row.translatedText) {
+            continue;
+        }
+
+        nextEdits = updatePendingEdits(nextEdits, excerptId, row.baseTranslatedText, nextText, {
+            ...metadata,
+            highlightRanges: rowHighlightRanges,
+        });
+        updatedRowCount += 1;
+    }
+
+    return { issues, nextEdits, updatedRowCount };
 };

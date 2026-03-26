@@ -6,9 +6,10 @@ import { startTransition, use, useEffect, useState } from 'react';
 import { ConversationView } from '@/components/conversation-view';
 import { DeleteButton } from '@/components/delete-button';
 import { TranslationTableView } from '@/components/translations/translation-table-view';
-import { fetchTranslationFile, updateTranslationFilePatch } from '@/lib/shell-api';
+import { fetchTranslationFile, requestArabicLeakCorrections, updateTranslationFilePatch } from '@/lib/shell-api';
 import type { TranslationFileResponse } from '@/lib/shell-types';
 import {
+    applyArabicLeakCorrectionsToPendingEdits,
     buildPatchedConversation,
     buildTranslationTableModel,
     getCommitButtonLabel,
@@ -36,6 +37,8 @@ const TranslationFileContent = ({ filePath }: { filePath: string }) => {
     const fileData = use(getFileData(filePath));
     const [content, setContent] = useState<unknown>(fileData.content);
     const [pendingEdits, setPendingEdits] = useState<PendingEditMap>({});
+    const [arabicLeakFixError, setArabicLeakFixError] = useState<string | null>(null);
+    const [isFixingArabicLeaks, setIsFixingArabicLeaks] = useState(false);
     const [isCommitting, setIsCommitting] = useState(false);
     const viewParam = searchParams.get('view');
     const view = isFileViewMode(viewParam) ? viewParam : 'table';
@@ -43,6 +46,8 @@ const TranslationFileContent = ({ filePath }: { filePath: string }) => {
     useEffect(() => {
         setContent(fileData.content);
         setPendingEdits({});
+        setArabicLeakFixError(null);
+        setIsFixingArabicLeaks(false);
         setIsCommitting(false);
     }, [fileData.content]);
 
@@ -72,6 +77,41 @@ const TranslationFileContent = ({ filePath }: { filePath: string }) => {
         setPendingEdits((currentEdits) => updatePendingEdits(currentEdits, excerptId, originalText, nextText));
     };
 
+    const handleAutoFixArabicLeaks = async () => {
+        if (!tableModel || tableModel.arabicLeakExcerpts.length === 0 || isFixingArabicLeaks) {
+            return;
+        }
+
+        setIsFixingArabicLeaks(true);
+        setArabicLeakFixError(null);
+
+        try {
+            const response = await requestArabicLeakCorrections(tableModel.arabicLeakExcerpts);
+            const { issues, nextEdits, updatedRowCount } = applyArabicLeakCorrectionsToPendingEdits(
+                tableModel,
+                pendingEdits,
+                response.corrections,
+                response.patchMetadata,
+            );
+
+            if (updatedRowCount === 0) {
+                setArabicLeakFixError(issues[0] ?? 'The assistant did not return any usable Arabic leak corrections.');
+                return;
+            }
+
+            startTransition(() => {
+                setPendingEdits(nextEdits);
+                setArabicLeakFixError(issues[0] ?? null);
+            });
+        } catch (error) {
+            setArabicLeakFixError(
+                error instanceof Error ? error.message : 'Failed to request Arabic leak corrections.',
+            );
+        } finally {
+            setIsFixingArabicLeaks(false);
+        }
+    };
+
     const handleCommitPending = async () => {
         if (pendingEditCount === 0 || isCommitting) {
             return;
@@ -82,7 +122,12 @@ const TranslationFileContent = ({ filePath }: { filePath: string }) => {
             let latestFile: TranslationFileResponse | null = null;
 
             for (const [excerptId, pendingEdit] of Object.entries(pendingEdits)) {
-                latestFile = await updateTranslationFilePatch(filePath, excerptId, pendingEdit.patch);
+                latestFile = await updateTranslationFilePatch(
+                    filePath,
+                    excerptId,
+                    pendingEdit.patch,
+                    pendingEdit.metadata,
+                );
             }
 
             if (latestFile) {
@@ -149,7 +194,13 @@ const TranslationFileContent = ({ filePath }: { filePath: string }) => {
                         </div>
                     )
                 ) : (
-                    <TranslationTableView model={tableModel} onDraftChange={handleDraftChange} />
+                    <TranslationTableView
+                        arabicLeakFixError={arabicLeakFixError}
+                        isFixingArabicLeaks={isFixingArabicLeaks}
+                        model={tableModel}
+                        onAutoFixArabicLeaks={handleAutoFixArabicLeaks}
+                        onDraftChange={handleDraftChange}
+                    />
                 )}
             </div>
         </div>

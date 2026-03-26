@@ -6,6 +6,12 @@ import type { Range, Segment } from './validation/types';
 export type RupturePatchOp = { end: number; start: number; text: string };
 export type RupturePatch = { ops: RupturePatchOp[] };
 export type RupturePatches = Record<string, RupturePatch>;
+export type RupturePatchMetadata = {
+    appliedAt: string;
+    highlightRanges?: Range[];
+    source: { kind: 'llm'; model: string; modelVersion?: string; provider: 'google'; task: 'arabic_leak_correction' };
+};
+export type RupturePatchMetadataMap = Record<string, RupturePatchMetadata>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -28,6 +34,35 @@ const isRupturePatchOp = (value: unknown): value is RupturePatchOp => {
 
 export const isRupturePatch = (value: unknown): value is RupturePatch =>
     isRecord(value) && Array.isArray(value.ops) && value.ops.every(isRupturePatchOp);
+
+export const isRupturePatchMetadata = (value: unknown): value is RupturePatchMetadata => {
+    if (!isRecord(value) || !isRecord(value.source)) {
+        return false;
+    }
+
+    const highlightRanges = value.highlightRanges;
+
+    return (
+        typeof value.appliedAt === 'string' &&
+        (typeof highlightRanges === 'undefined' ||
+            (Array.isArray(highlightRanges) &&
+                highlightRanges.every(
+                    (range) =>
+                        isRecord(range) &&
+                        typeof range.start === 'number' &&
+                        typeof range.end === 'number' &&
+                        Number.isInteger(range.start) &&
+                        Number.isInteger(range.end) &&
+                        range.start >= 0 &&
+                        range.end >= range.start,
+                ))) &&
+        value.source.kind === 'llm' &&
+        typeof value.source.model === 'string' &&
+        value.source.provider === 'google' &&
+        value.source.task === 'arabic_leak_correction' &&
+        (typeof value.source.modelVersion === 'string' || typeof value.source.modelVersion === 'undefined')
+    );
+};
 
 const normalizeRupturePatch = (patch: RupturePatch): RupturePatch | null => {
     const ops = patch.ops.toSorted((left, right) => left.start - right.start || left.end - right.end);
