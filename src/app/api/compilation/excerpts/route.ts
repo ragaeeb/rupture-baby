@@ -68,7 +68,7 @@ export const GET = async (request: Request) => {
         const maxIds = Math.min(parsePositiveInt(searchParams.get('maxIds'), DEFAULT_MAX_IDS), MAX_MAX_IDS);
         const modelId = searchParams.get('modelId') ?? DEFAULT_MODEL_ID;
         const selectedEndIndexParam = parseOptionalNonNegativeInt(searchParams.get('selectedEndIndex'));
-        const selectedPrompt = getSelectedPrompt();
+        const selectedPrompt = await getSelectedPrompt();
         const selectedModel = getTranslationModelById(modelId);
 
         if (!selectedModel) {

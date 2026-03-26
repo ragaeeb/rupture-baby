@@ -1,4 +1,3 @@
-import { parseTranslationsInOrder } from 'wobble-bibble';
 import type { AITranslator, Excerpt } from './compilation';
 import type {
     AIModel,
@@ -9,6 +8,9 @@ import type {
     Message,
     MessageNode,
 } from './translation-types';
+import { parseTranslationsInOrder } from './validation/textUtils';
+import type { Segment, ValidationError } from './validation/types';
+import { validateTranslationResponse } from './validation/utils';
 
 const COMMON_FORMAT_VALUE = 'common' as const;
 
@@ -431,7 +433,7 @@ export const parseTranslationToCommon = (data: unknown): CommonConversationExpor
     throw new Error('Input does not match a supported translation JSON shape.');
 };
 
-const mapTranslatorToId = (model: AIModel): AITranslator => {
+const mapTranslatorToId = (model: string): AITranslator => {
     if (model === 'gemini-3-pro') {
         return 901;
     }
@@ -451,36 +453,110 @@ const mapTranslatorToId = (model: AIModel): AITranslator => {
     throw new Error(`Invalid model: ${model}`);
 };
 
-export const mapConversationToExcerpts = (c: CommonConversationExport): Excerpt[] => {
+export type ConversationExcerptsValidation = {
+    arabicSegments: Segment[];
+    excerpts: Excerpt[];
+    translatedSegments: Segment[];
+    validationErrors: ValidationError[];
+};
+
+const buildResponseAlignmentErrors = (
+    arabicSegments: Segment[],
+    translatedSegments: Segment[],
+    response: string,
+): ValidationError[] => {
+    const errors: ValidationError[] = [];
+    const expectedIds = arabicSegments.map((segment) => segment.id);
+    const translatedIds = translatedSegments.map((segment) => segment.id);
+    const expectedIdsSet = new Set(expectedIds);
+    const translatedIdsSet = new Set(translatedIds);
+    const duplicateCounts = new Map<string, number>();
+
+    for (const id of translatedIds) {
+        duplicateCounts.set(id, (duplicateCounts.get(id) ?? 0) + 1);
+    }
+
+    for (const [id, count] of duplicateCounts.entries()) {
+        if (count > 1) {
+            errors.push({
+                id,
+                matchText: id,
+                message: `Duplicate translated ID "${id}" found ${count} times in the response.`,
+                range: { end: response.length, start: 0 },
+                ruleId: 'duplicate_id',
+                type: 'duplicate_id',
+            });
+        }
+    }
+
+    const inventedIds = translatedIds.filter((id) => !expectedIdsSet.has(id));
+    for (const id of inventedIds) {
+        errors.push({
+            id,
+            matchText: id,
+            message: `Translated response contains ID "${id}" which does not exist in the Arabic source.`,
+            range: { end: response.length, start: 0 },
+            ruleId: 'invented_id',
+            type: 'invented_id',
+        });
+    }
+
+    const missingIds = expectedIds.filter((id) => !translatedIdsSet.has(id));
+    if (missingIds.length > 0) {
+        errors.push({
+            matchText: missingIds.join(', '),
+            message: `Translated response is missing source IDs: ${missingIds.join(', ')}.`,
+            range: { end: response.length, start: 0 },
+            ruleId: 'missing_id_gap',
+            type: 'missing_id_gap',
+        });
+    }
+
+    const sharedLength = Math.min(expectedIds.length, translatedIds.length);
+    for (let i = 0; i < sharedLength; i += 1) {
+        if (expectedIds[i] === translatedIds[i]) {
+            continue;
+        }
+
+        errors.push({
+            id: translatedIds[i],
+            matchText: translatedIds[i] ?? '',
+            message: `Translated response is out of order at position ${i + 1}: expected "${expectedIds[i]}", received "${translatedIds[i]}".`,
+            range: { end: response.length, start: 0 },
+            ruleId: 'missing_id_gap',
+            type: 'missing_id_gap',
+        });
+        break;
+    }
+
+    return errors;
+};
+
+export const validateConversationExcerpts = (c: CommonConversationExport): ConversationExcerptsValidation => {
     const arabic = c.prompt.substring(c.prompt.indexOf('\n\n')).trim();
     const arabicSegments = parseTranslationsInOrder(arabic);
     const translatedSegments = parseTranslationsInOrder(c.response);
+    const validatorResult = validateTranslationResponse(arabicSegments, c.response);
+    const alignmentErrors = buildResponseAlignmentErrors(arabicSegments, translatedSegments, c.response);
+    const validationErrors = [...validatorResult.errors, ...alignmentErrors];
 
-    if (arabicSegments.length !== translatedSegments.length) {
-        console.error('ONVALID', arabicSegments);
-        console.error('translatedSegments', translatedSegments);
-        return [];
-    }
-
-    const areIdsOrdered = arabicSegments.every((e, i) => {
-        return e.id === translatedSegments[i].id;
-    });
-
-    if (!areIdsOrdered) {
-        console.error('areIdsOrdered', arabicSegments);
-        console.error('translatedSegments', translatedSegments);
-        return [];
+    if (validationErrors.length > 0) {
+        return { arabicSegments, excerpts: [], translatedSegments, validationErrors };
     }
 
     const excerpts = arabicSegments.map((e, i) => {
         return {
             from: 0,
             id: e.id,
-            nass: e.translation,
-            text: translatedSegments[i].translation,
+            nass: e.text,
+            text: translatedSegments[i].text,
             translator: mapTranslatorToId(c.model!),
         } satisfies Excerpt;
     });
 
-    return excerpts;
+    return { arabicSegments, excerpts, translatedSegments, validationErrors: [] };
+};
+
+export const mapConversationToExcerpts = (c: CommonConversationExport): Excerpt[] => {
+    return validateConversationExcerpts(c).excerpts;
 };

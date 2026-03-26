@@ -18,8 +18,7 @@
         "react": "19.2.4",
         "react-dom": "19.2.4",
         "stream-json": "^2.0.0",
-        "tailwind-merge": "^3.5.0",
-        "wobble-bibble": "^1.4.7"
+        "tailwind-merge": "^3.5.0"
     },
     "description": "Next.js translation coordination server for Arabic excerpts and browser extension clients.",
     "devDependencies": {

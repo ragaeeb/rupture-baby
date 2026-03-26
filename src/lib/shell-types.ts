@@ -25,6 +25,16 @@ export type DashboardStatsResponse = {
         translationsDirectoryExists: boolean;
     };
     stats: { port: string; translationFilesCount: number; translationsDirectoryName: string };
+    translationStats?: TranslationStats;
+};
+
+export type TranslationStats = {
+    files: Array<{ isValid: boolean; model: string | undefined; path: string }>;
+    invalidByModel: Record<string, number>;
+    invalidFiles: number;
+    modelBreakdown: Record<string, number>;
+    totalFiles: number;
+    validFiles: number;
 };
 
 export type AppMetaResponse = {
@@ -34,3 +44,5 @@ export type AppMetaResponse = {
     name: string | null;
     version: string | null;
 };
+
+export type PromptOption = { content: string; id: string; name: string };

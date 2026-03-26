@@ -16,7 +16,7 @@ export type CommonConversationExport = {
     /** Platform name (e.g., 'Grok', 'ChatGPT', 'Gemini') */
     llm: string;
     /** Specific model name if available */
-    model?: AIModel;
+    model?: string;
     /** Conversation title */
     title?: string;
     /** Unique conversation ID */
@@ -126,6 +126,16 @@ export type Message = {
  * A node in the conversation message tree
  */
 export type MessageNode = { id: string; message: Message | null; parent: string | null; children: string[] };
+
+/**
+ * A single segment (Arabic source excerpt) identified by an ID.
+ *
+ * Canonical shape (breaking change): `{ id, text }`.
+ *
+ * @example
+ * const seg: Segment = { id: 'P1', text: 'نص عربي...' };
+ */
+export type Segment = { id: string; text: string };
 
 /**
  * Wrapper format for legacy exports

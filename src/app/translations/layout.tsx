@@ -1,19 +1,34 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { AppFooter } from '@/components/app-footer';
 import { AppSidebar } from '@/components/app-sidebar';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
-import { fetchTranslationTree } from '@/lib/shell-api';
-import type { TranslationTreeResponse } from '@/lib/shell-types';
+import {
+    fetchDashboardStats,
+    fetchTranslationTree,
+    getCachedDashboardStats,
+    getCachedTranslationTree,
+} from '@/lib/shell-api';
+import type { DashboardStatsResponse, TranslationTreeResponse } from '@/lib/shell-types';
+import { filterTranslationTreeEntries, type TranslationTreeFilter } from '@/lib/translation-tree-filter';
 
-export default function TranslationsLayout({ children }: { children: React.ReactNode }) {
+const TranslationsLayoutContent = ({ children }: { children: React.ReactNode }) => {
     const pathname = usePathname();
-    const [tree, setTree] = useState<TranslationTreeResponse | null>(null);
+    const searchParams = useSearchParams();
+    const [tree, setTree] = useState<TranslationTreeResponse | null>(() => getCachedTranslationTree());
+    const [stats, setStats] = useState<DashboardStatsResponse | null>(() => getCachedDashboardStats());
     const [treeError, setTreeError] = useState<string | null>(null);
+
+    const modelFilter = searchParams.get('model') || 'all';
+    const statusFilter = searchParams.get('status') || 'all';
+    const filter: TranslationTreeFilter = {
+        model: modelFilter as TranslationTreeFilter['model'],
+        status: statusFilter as TranslationTreeFilter['status'],
+    };
 
     // Extract selected file path from the pathname /translations/[fileNameId]
     const match = pathname.match(/^\/translations\/(.+)$/);
@@ -34,7 +49,7 @@ export default function TranslationsLayout({ children }: { children: React.React
         const loadTree = async () => {
             try {
                 setTreeError(null);
-                const translationTree = await fetchTranslationTree();
+                const translationTree = await fetchTranslationTree({ force: true });
                 if (!isMounted) {
                     return;
                 }
@@ -47,20 +62,40 @@ export default function TranslationsLayout({ children }: { children: React.React
             }
         };
 
+        const loadStats = async () => {
+            try {
+                const dashboardStats = await fetchDashboardStats({ force: true });
+                if (!isMounted) {
+                    return;
+                }
+                setStats(dashboardStats);
+            } catch {
+                if (isMounted) {
+                    setStats(null);
+                }
+            }
+        };
+
         loadTree();
+        loadStats();
 
         return () => {
             isMounted = false;
         };
     }, []);
 
+    const filteredEntries = tree ? filterTranslationTreeEntries(tree.entries, stats?.translationStats, filter) : [];
+
     return (
         <SidebarProvider>
-            <AppSidebar
-                entries={tree?.entries || []}
-                rootName={tree?.rootName || 'translations'}
-                selectedFilePath={selectedFilePath}
-            />
+            <Suspense fallback={null}>
+                <AppSidebar
+                    entries={filteredEntries}
+                    rootName={tree?.rootName || 'translations'}
+                    translationStats={stats?.translationStats}
+                    selectedFilePath={selectedFilePath}
+                />
+            </Suspense>
             <SidebarInset>
                 <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
                     <SidebarTrigger className="-ml-1" />
@@ -85,5 +120,13 @@ export default function TranslationsLayout({ children }: { children: React.React
                 <AppFooter />
             </SidebarInset>
         </SidebarProvider>
+    );
+};
+
+export default function TranslationsLayout({ children }: { children: React.ReactNode }) {
+    return (
+        <Suspense fallback={null}>
+            <TranslationsLayoutContent>{children}</TranslationsLayoutContent>
+        </Suspense>
     );
 }

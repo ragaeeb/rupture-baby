@@ -45,7 +45,7 @@ export const GET = async (request: Request) => {
             return NextResponse.json({ error: `Invalid modelId "${modelId}".` }, { status: 400 });
         }
 
-        const selectedPrompt = getSelectedPrompt();
+        const selectedPrompt = await getSelectedPrompt();
         const prompt = selectedPrompt.content.trim();
         const baseTokens = estimateTokenCount(prompt, selectedModel.provider);
         const untranslatedExcerpts = await getCachedUntranslatedExcerpts();

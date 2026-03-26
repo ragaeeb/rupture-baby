@@ -1,25 +1,42 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 import { AppFooter } from '@/components/app-footer';
 import { AppSidebar } from '@/components/app-sidebar';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
-import { fetchDashboardStats, fetchTranslationTree } from '@/lib/shell-api';
+import {
+    fetchDashboardStats,
+    fetchTranslationTree,
+    getCachedDashboardStats,
+    getCachedTranslationTree,
+} from '@/lib/shell-api';
 import type { DashboardStatsResponse, TranslationTreeResponse } from '@/lib/shell-types';
+import { filterTranslationTreeEntries, type TranslationTreeFilter } from '@/lib/translation-tree-filter';
 
-const DashboardPage = () => {
-    const [stats, setStats] = useState<DashboardStatsResponse | null>(null);
+const DashboardPageContent = () => {
+    const searchParams = useSearchParams();
+    const [stats, setStats] = useState<DashboardStatsResponse | null>(() => getCachedDashboardStats());
     const [statsError, setStatsError] = useState<string | null>(null);
-    const [tree, setTree] = useState<TranslationTreeResponse | null>(null);
+    const [tree, setTree] = useState<TranslationTreeResponse | null>(() => getCachedTranslationTree());
+
+    // Get filter from URL query params
+    const modelFilter = searchParams.get('model') || 'all';
+    const statusFilter = searchParams.get('status') || 'all';
+
+    const filter: TranslationTreeFilter = {
+        model: modelFilter as TranslationTreeFilter['model'],
+        status: statusFilter as TranslationTreeFilter['status'],
+    };
 
     useEffect(() => {
         let isMounted = true;
 
         const loadTree = async () => {
             try {
-                const translationTree = await fetchTranslationTree();
+                const translationTree = await fetchTranslationTree({ force: true });
                 if (isMounted) {
                     setTree(translationTree);
                 }
@@ -33,7 +50,7 @@ const DashboardPage = () => {
         const loadStats = async () => {
             try {
                 setStatsError(null);
-                const dashboardStats = await fetchDashboardStats();
+                const dashboardStats = await fetchDashboardStats({ force: true });
                 if (!isMounted) {
                     return;
                 }
@@ -54,9 +71,20 @@ const DashboardPage = () => {
         };
     }, []);
 
+    const translationStats = stats?.translationStats;
+
+    // Filter tree entries based on filter state
+    const filteredEntries = tree ? filterTranslationTreeEntries(tree.entries, translationStats, filter) : [];
+
     return (
         <SidebarProvider>
-            <AppSidebar entries={tree?.entries || []} rootName={tree?.rootName || 'translations'} />
+            <Suspense fallback={null}>
+                <AppSidebar
+                    entries={filteredEntries}
+                    rootName={tree?.rootName || 'translations'}
+                    translationStats={translationStats}
+                />
+            </Suspense>
             <SidebarInset>
                 <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
                     <SidebarTrigger className="-ml-1" />
@@ -104,12 +132,25 @@ const DashboardPage = () => {
                         </div>
 
                         <div className="rounded-xl border bg-card p-4">
-                            <h2 className="font-semibold text-base">Runtime</h2>
-                            <p className="mt-3 text-sm">Port: {stats?.stats.port || '...'}</p>
-                            <p className="mt-2 text-sm">
-                                Translations captured: {stats?.stats.translationFilesCount ?? '...'}
-                            </p>
-                            <p className="mt-2 text-sm">Folder: {stats?.stats.translationsDirectoryName || '...'}</p>
+                            <h2 className="font-semibold text-base">Translation Stats</h2>
+                            <div className="mt-3 grid grid-cols-3 gap-4">
+                                <div>
+                                    <p className="text-muted-foreground text-xs">Total Files</p>
+                                    <p className="font-semibold text-2xl">{translationStats?.totalFiles ?? '...'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-muted-foreground text-xs">Valid</p>
+                                    <p className="font-semibold text-2xl text-green-700">
+                                        {translationStats?.validFiles ?? '...'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-muted-foreground text-xs">Invalid</p>
+                                    <p className="font-semibold text-2xl text-destructive">
+                                        {translationStats?.invalidFiles ?? '...'}
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -118,5 +159,11 @@ const DashboardPage = () => {
         </SidebarProvider>
     );
 };
+
+const DashboardPage = () => (
+    <Suspense fallback={null}>
+        <DashboardPageContent />
+    </Suspense>
+);
 
 export default DashboardPage;

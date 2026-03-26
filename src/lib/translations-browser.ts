@@ -1,7 +1,8 @@
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { MissingPathConfigError, requireCompilationFilePath, requireTranslationsDir } from '@/lib/data-paths';
+import { mapConversationToExcerpts, parseTranslationToCommon } from './translation-parser';
 
 export type TranslationTreeNode = {
     kind: 'directory' | 'file';
@@ -212,4 +213,72 @@ export const getDashboardStats = async () => {
         },
         stats: { port: process.env.PORT?.trim() || '9000', translationFilesCount, translationsDirectoryName },
     };
+};
+
+export type TranslationFileStats = { path: string; model: string | undefined; isValid: boolean };
+
+export type TranslationStats = {
+    totalFiles: number;
+    validFiles: number;
+    invalidFiles: number;
+    files: TranslationFileStats[];
+    modelBreakdown: Record<string, number>;
+    invalidByModel: Record<string, number>;
+};
+
+const collectAllFiles = async (currentDirectory: string, currentRelativePath: string): Promise<string[]> => {
+    const files: string[] = [];
+    const directoryEntries = await readdir(currentDirectory, { withFileTypes: true });
+
+    for (const entry of directoryEntries) {
+        const fullPath = path.join(currentDirectory, entry.name);
+        const relativePath = currentRelativePath ? `${currentRelativePath}/${entry.name}` : entry.name;
+
+        if (entry.isDirectory()) {
+            files.push(...(await collectAllFiles(fullPath, relativePath)));
+        } else if (entry.isFile() && entry.name.endsWith('.json')) {
+            files.push(relativePath);
+        }
+    }
+
+    return files;
+};
+
+export const getTranslationStats = async (): Promise<TranslationStats> => {
+    const translationsDir = requireTranslationsDir();
+    const filePaths = await collectAllFiles(translationsDir, '');
+
+    const files: TranslationFileStats[] = [];
+    const modelBreakdown: Record<string, number> = {};
+    const invalidByModel: Record<string, number> = {};
+
+    for (const filePath of filePaths) {
+        try {
+            const fullPath = path.join(translationsDir, filePath);
+            const content = await readFile(fullPath, 'utf8');
+            const parsed = parseTranslationToCommon(JSON.parse(content));
+            const excerpts = mapConversationToExcerpts(parsed);
+            const isValid = excerpts.length > 0;
+            const model = parsed.model;
+
+            files.push({ isValid, model, path: filePath });
+
+            // Count models
+            if (model) {
+                modelBreakdown[model] = (modelBreakdown[model] || 0) + 1;
+                if (!isValid) {
+                    invalidByModel[model] = (invalidByModel[model] || 0) + 1;
+                }
+            }
+        } catch {
+            // If parsing fails, mark as invalid with unknown model
+            files.push({ isValid: false, model: undefined, path: filePath });
+            invalidByModel.unknown = (invalidByModel.unknown || 0) + 1;
+        }
+    }
+
+    const validFiles = files.filter((f) => f.isValid).length;
+    const invalidFiles = files.filter((f) => !f.isValid).length;
+
+    return { files, invalidByModel, invalidFiles, modelBreakdown, totalFiles: filePaths.length, validFiles };
 };

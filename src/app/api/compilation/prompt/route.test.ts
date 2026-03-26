@@ -31,7 +31,7 @@ describe('POST /api/compilation/prompt', () => {
     });
 
     it('should set a valid prompt', async () => {
-        const validPromptId = getPromptOptions()[0]?.id;
+        const validPromptId = (await getPromptOptions())[0]?.id;
         expect(validPromptId).toBeDefined();
 
         const request = new Request('http://localhost/api/compilation/prompt', {

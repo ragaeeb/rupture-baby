@@ -2,8 +2,12 @@ import type {
     AppMetaResponse,
     DashboardStatsResponse,
     TranslationFileResponse,
+    TranslationStats,
     TranslationTreeResponse,
 } from '@/lib/shell-types';
+
+let cachedTranslationTree: TranslationTreeResponse | null = null;
+let cachedDashboardStats: DashboardStatsResponse | null = null;
 
 const getBaseUrl = () => {
     if (typeof window !== 'undefined') {
@@ -26,10 +30,18 @@ const readJson = async <T>(response: Response): Promise<T> => {
     return data;
 };
 
-export const fetchTranslationTree = async (): Promise<TranslationTreeResponse> => {
+export const getCachedTranslationTree = () => cachedTranslationTree;
+
+export const fetchTranslationTree = async (options?: { force?: boolean }): Promise<TranslationTreeResponse> => {
+    if (!options?.force && cachedTranslationTree) {
+        return cachedTranslationTree;
+    }
+
     const baseUrl = getBaseUrl();
     const response = await fetch(`${baseUrl}/api/translations/files`, { cache: 'no-store' });
-    return readJson<TranslationTreeResponse>(response);
+    const tree = await readJson<TranslationTreeResponse>(response);
+    cachedTranslationTree = tree;
+    return tree;
 };
 
 export const fetchTranslationFile = async (relativePath: string): Promise<TranslationFileResponse> => {
@@ -39,14 +51,60 @@ export const fetchTranslationFile = async (relativePath: string): Promise<Transl
     return readJson<TranslationFileResponse>(response);
 };
 
-export const fetchDashboardStats = async (): Promise<DashboardStatsResponse> => {
+export const getCachedDashboardStats = () => cachedDashboardStats;
+
+export const fetchDashboardStats = async (options?: { force?: boolean }): Promise<DashboardStatsResponse> => {
+    if (!options?.force && cachedDashboardStats) {
+        return cachedDashboardStats;
+    }
+
     const baseUrl = getBaseUrl();
     const response = await fetch(`${baseUrl}/api/dashboard/stats`, { cache: 'no-store' });
-    return readJson<DashboardStatsResponse>(response);
+    const stats = await readJson<DashboardStatsResponse>(response);
+    cachedDashboardStats = stats;
+    return stats;
+};
+
+export const fetchTranslationStats = async (): Promise<TranslationStats> => {
+    const baseUrl = getBaseUrl();
+    const response = await fetch(`${baseUrl}/api/dashboard/stats`, { cache: 'no-store' });
+    const data = await readJson<DashboardStatsResponse & { translationStats?: TranslationStats }>(response);
+    return (
+        data.translationStats || {
+            files: [],
+            invalidByModel: {},
+            invalidFiles: 0,
+            modelBreakdown: {},
+            totalFiles: 0,
+            validFiles: 0,
+        }
+    );
 };
 
 export const fetchAppMeta = async (): Promise<AppMetaResponse> => {
     const baseUrl = getBaseUrl();
     const response = await fetch(`${baseUrl}/api/meta`, { cache: 'no-store' });
     return readJson<AppMetaResponse>(response);
+};
+
+export type PromptStateResponse = {
+    options: Array<{ content: string; id: string; name: string }>;
+    selectedPromptContent: string;
+    selectedPromptId: string;
+};
+
+export const fetchPromptState = async (): Promise<PromptStateResponse> => {
+    const baseUrl = getBaseUrl();
+    const response = await fetch(`${baseUrl}/api/compilation/prompt`, { cache: 'no-store' });
+    return readJson<PromptStateResponse>(response);
+};
+
+export const setPrompt = async (promptId: string): Promise<{ selectedPromptId: string }> => {
+    const baseUrl = getBaseUrl();
+    const response = await fetch(`${baseUrl}/api/compilation/prompt`, {
+        body: JSON.stringify({ promptId }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+    });
+    return readJson<{ selectedPromptId: string }>(response);
 };
