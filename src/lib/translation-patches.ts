@@ -1,0 +1,202 @@
+import { applyPatch, diffChars } from 'diff';
+
+import { parseTranslationsInOrder } from './validation/textUtils';
+import type { Range, Segment } from './validation/types';
+
+export type RupturePatchOp = { end: number; start: number; text: string };
+export type RupturePatch = { ops: RupturePatchOp[] };
+export type RupturePatches = Record<string, RupturePatch>;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isRupturePatchOp = (value: unknown): value is RupturePatchOp => {
+    if (!isRecord(value)) {
+        return false;
+    }
+
+    const start = value.start;
+    const end = value.end;
+    const text = value.text;
+
+    if (typeof start !== 'number' || typeof end !== 'number' || typeof text !== 'string') {
+        return false;
+    }
+
+    return Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end >= start;
+};
+
+export const isRupturePatch = (value: unknown): value is RupturePatch =>
+    isRecord(value) && Array.isArray(value.ops) && value.ops.every(isRupturePatchOp);
+
+const normalizeRupturePatch = (patch: RupturePatch): RupturePatch | null => {
+    const ops = patch.ops.toSorted((left, right) => left.start - right.start || left.end - right.end);
+
+    for (let index = 0; index < ops.length; index += 1) {
+        const current = ops[index];
+        const previous = ops[index - 1];
+
+        if (!current) {
+            return null;
+        }
+
+        if (previous && current.start < previous.end) {
+            return null;
+        }
+    }
+
+    return ops.length > 0 ? { ops } : null;
+};
+
+const applyRupturePatch = (text: string, patch: RupturePatch) => {
+    const normalizedPatch = normalizeRupturePatch(patch);
+    if (!normalizedPatch) {
+        return null;
+    }
+
+    let cursor = 0;
+    let result = '';
+
+    for (const op of normalizedPatch.ops) {
+        if (op.start < cursor || op.start > text.length || op.end < op.start || op.end > text.length) {
+            return null;
+        }
+
+        result += text.slice(cursor, op.start);
+        result += op.text;
+        cursor = op.end;
+    }
+
+    result += text.slice(cursor);
+    return result;
+};
+
+const coerceLegacyRupturePatch = (text: string, legacyPatch: string) => {
+    const nextText = applyPatch(text, legacyPatch);
+    return nextText === false ? null : createRupturePatch(text, nextText);
+};
+
+const coerceRupturePatch = (text: string, patch: unknown) => {
+    if (typeof patch === 'string') {
+        return coerceLegacyRupturePatch(text, patch);
+    }
+
+    return isRupturePatch(patch) ? normalizeRupturePatch(patch) : null;
+};
+
+export const normalizeRupturePatchesForSegments = (
+    segments: Segment[],
+    rawPatches: unknown,
+): RupturePatches | undefined => {
+    if (!isRecord(rawPatches)) {
+        return undefined;
+    }
+
+    const entries: Array<[string, RupturePatch]> = [];
+
+    for (const segment of segments) {
+        const patch = coerceRupturePatch(segment.text, rawPatches[segment.id]);
+        if (patch) {
+            entries.push([segment.id, patch]);
+        }
+    }
+
+    return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+};
+
+export const getRupturePatchHighlightRanges = (patch: RupturePatch): Range[] => {
+    const normalizedPatch = normalizeRupturePatch(patch);
+    if (!normalizedPatch) {
+        return [];
+    }
+
+    const ranges: Range[] = [];
+    let originalCursor = 0;
+    let patchedCursor = 0;
+
+    for (const op of normalizedPatch.ops) {
+        patchedCursor += op.start - originalCursor;
+        originalCursor = op.end;
+
+        if (op.text.length > 0) {
+            ranges.push({ end: patchedCursor + op.text.length, start: patchedCursor });
+            patchedCursor += op.text.length;
+        }
+    }
+
+    return ranges;
+};
+
+export const applyRupturePatchesToSegments = (segments: Segment[], patches?: RupturePatches | null) => {
+    if (!patches) {
+        return segments;
+    }
+
+    const hasAnyPatch = segments.some((segment) => patches[segment.id]);
+    if (!hasAnyPatch) {
+        return segments;
+    }
+
+    return segments.map((segment) => {
+        const patch = patches[segment.id];
+        if (!patch) {
+            return segment;
+        }
+
+        const patchedText = applyRupturePatch(segment.text, patch);
+        return patchedText === null ? segment : { ...segment, text: patchedText };
+    });
+};
+
+export const applyRupturePatchesToResponse = (response: string, patches?: RupturePatches | null) => {
+    const segments = applyRupturePatchesToSegments(parseTranslationsInOrder(response), patches);
+    return segments.map((segment) => `${segment.id} - ${segment.text}`).join('\n\n');
+};
+
+export const createRupturePatch = (originalText: string, nextText: string): RupturePatch | null => {
+    if (originalText === nextText) {
+        return null;
+    }
+
+    const ops: RupturePatchOp[] = [];
+    let originalCursor = 0;
+    let pendingInsertText = '';
+    let pendingStart: number | null = null;
+    let pendingEnd: number | null = null;
+
+    const flushPending = () => {
+        if (pendingStart === null && pendingInsertText.length === 0) {
+            return;
+        }
+
+        const start = pendingStart ?? originalCursor;
+        const end = pendingEnd ?? start;
+        ops.push({ end, start, text: pendingInsertText });
+        pendingInsertText = '';
+        pendingStart = null;
+        pendingEnd = null;
+    };
+
+    for (const part of diffChars(originalText, nextText)) {
+        if (part.added) {
+            pendingInsertText += part.value;
+            continue;
+        }
+
+        if (part.removed) {
+            if (pendingStart === null) {
+                pendingStart = originalCursor;
+            }
+            originalCursor += part.value.length;
+            pendingEnd = originalCursor;
+            continue;
+        }
+
+        flushPending();
+        originalCursor += part.value.length;
+    }
+
+    flushPending();
+
+    return ops.length > 0 ? { ops } : null;
+};

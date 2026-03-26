@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import { parseTranslationToCommon } from './translation-parser';
 
+const ruptureMeta = { patches: { P1: { ops: [{ end: 4, start: 0, text: 'patch' }] } } };
+
 describe('parseTranslationToCommon - Grok Conversation', () => {
     it('should parse single conversation object', () => {
         const input = {
+            __rupture: ruptureMeta,
             conversation: {
                 anon_user_id: null,
                 create_time: '2026-03-18T15:12:37.961673Z',
@@ -38,6 +41,7 @@ describe('parseTranslationToCommon - Grok Conversation', () => {
         expect(result.prompt).toBe('');
         expect(result.response).toContain('ROLE: Expert academic translator');
         expect(result.reasoning).toEqual([]);
+        expect(result.__rupture).toEqual(ruptureMeta);
     });
 });
 
@@ -152,12 +156,18 @@ describe('parseTranslationToCommon - Blackiya Original Format', () => {
     it('should handle legacy wrapper format', () => {
         const conversation = createBaseInput();
 
-        const input = { __blackiya: { exportMeta: { source: 'test' } }, data: conversation, format: 'original' };
+        const input = {
+            __blackiya: { exportMeta: { source: 'test' } },
+            __rupture: ruptureMeta,
+            data: conversation,
+            format: 'original',
+        };
 
         const result = parseTranslationToCommon(input);
 
         expect(result.title).toBe('Thought Capture');
         expect(result.__blackiya).toEqual({ exportMeta: { source: 'test' } });
+        expect(result.__rupture).toEqual(ruptureMeta);
     });
 
     it('should throw on unsupported format', () => {

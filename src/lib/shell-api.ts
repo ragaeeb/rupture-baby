@@ -5,6 +5,7 @@ import type {
     TranslationStats,
     TranslationTreeResponse,
 } from '@/lib/shell-types';
+import type { RupturePatch } from '@/lib/translation-patches';
 
 let cachedTranslationTree: TranslationTreeResponse | null = null;
 let cachedDashboardStats: DashboardStatsResponse | null = null;
@@ -48,6 +49,21 @@ export const fetchTranslationFile = async (relativePath: string): Promise<Transl
     const baseUrl = getBaseUrl();
     const query = new URLSearchParams({ path: relativePath });
     const response = await fetch(`${baseUrl}/api/translations/file?${query.toString()}`, { cache: 'no-store' });
+    return readJson<TranslationFileResponse>(response);
+};
+
+export const updateTranslationFilePatch = async (
+    relativePath: string,
+    excerptId: string,
+    patch: RupturePatch | null,
+): Promise<TranslationFileResponse> => {
+    const baseUrl = getBaseUrl();
+    const query = new URLSearchParams({ path: relativePath });
+    const response = await fetch(`${baseUrl}/api/translations/file?${query.toString()}`, {
+        body: JSON.stringify({ excerptId, patch }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+    });
     return readJson<TranslationFileResponse>(response);
 };
 

@@ -64,6 +64,7 @@ export type ValidationError = {
     type: ValidationErrorType;
     message: string;
     range: Range;
+    segmentRange?: Range;
     matchText: string;
     id?: string;
     /**

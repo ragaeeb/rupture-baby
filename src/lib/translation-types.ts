@@ -3,6 +3,8 @@
  * This is the unified format all translation files are converted to.
  */
 
+import type { RupturePatches } from './translation-patches';
+
 export const COMMON_FORMAT = 'common' as const;
 
 export type AIModel = 'gemini-3-pro' | 'grok-4' | 'gpt-5-4-thinking' | 'gpt-5-4-pro';
@@ -33,6 +35,8 @@ export type CommonConversationExport = {
     reasoning: string[];
     /** Optional Blackiya metadata for legacy exports */
     __blackiya?: Record<string, unknown>;
+    /** Optional Rupture metadata for file-level patches */
+    __rupture?: { patches?: RupturePatches };
 };
 
 /**

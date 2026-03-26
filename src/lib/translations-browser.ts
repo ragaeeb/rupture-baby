@@ -1,8 +1,11 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readdir, rename, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { MissingPathConfigError, requireCompilationFilePath, requireTranslationsDir } from '@/lib/data-paths';
 import { mapConversationToExcerpts, parseTranslationToCommon } from './translation-parser';
+import { normalizeRupturePatchesForSegments, type RupturePatch } from './translation-patches';
+import { parseTranslationsInOrder } from './validation/textUtils';
 
 export type TranslationTreeNode = {
     kind: 'directory' | 'file';
@@ -149,6 +152,71 @@ export const readTranslationJsonFile = async (rawRelativePath: string) => {
     };
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+export const writeTranslationPatch = async (rawRelativePath: string, excerptId: string, patch: RupturePatch | null) => {
+    const translationsDir = requireTranslationsDir();
+    const relativePath = normalizeRelativePath(rawRelativePath);
+
+    if (!relativePath.endsWith('.json')) {
+        throw new Error('Only .json files are supported.');
+    }
+
+    const absolutePath = path.join(translationsDir, relativePath);
+    assertPathInsideRoot(translationsDir, absolutePath);
+
+    const file = Bun.file(absolutePath);
+    if (!(await file.exists())) {
+        throw new Error('File not found.');
+    }
+
+    const content = await file.text();
+    const parsedJson = JSON.parse(content) as unknown;
+    if (!isRecord(parsedJson)) {
+        throw new Error('Translation file must be a JSON object.');
+    }
+
+    const conversation = parseTranslationToCommon(parsedJson);
+    const baseTranslatedSegments = parseTranslationsInOrder(conversation.response);
+    if (!baseTranslatedSegments.some((segment) => segment.id === excerptId)) {
+        throw new Error('Excerpt not found.');
+    }
+
+    const nextContent = { ...parsedJson };
+    const nextRupture = isRecord(nextContent.__rupture) ? { ...nextContent.__rupture } : {};
+    const rawNextPatches = {
+        ...(normalizeRupturePatchesForSegments(baseTranslatedSegments, nextRupture.patches) ?? {}),
+    };
+
+    if (patch) {
+        rawNextPatches[excerptId] = patch;
+    } else {
+        delete rawNextPatches[excerptId];
+    }
+
+    const nextPatches = normalizeRupturePatchesForSegments(baseTranslatedSegments, rawNextPatches) ?? {};
+
+    if (Object.keys(nextPatches).length > 0) {
+        nextRupture.patches = nextPatches;
+        nextContent.__rupture = nextRupture;
+    } else {
+        delete nextRupture.patches;
+        if (Object.keys(nextRupture).length > 0) {
+            nextContent.__rupture = nextRupture;
+        } else {
+            delete nextContent.__rupture;
+        }
+    }
+
+    const tempPath = `${absolutePath}.${randomUUID()}.tmp`;
+    await mkdir(path.dirname(absolutePath), { recursive: true });
+    await Bun.write(tempPath, `${JSON.stringify(nextContent, null, 2)}\n`);
+    await rename(tempPath, absolutePath);
+
+    return readTranslationJsonFile(relativePath);
+};
+
 const countFiles = (nodes: TranslationTreeNode[]): number => {
     let count = 0;
     for (const node of nodes) {
@@ -255,7 +323,7 @@ export const getTranslationStats = async (): Promise<TranslationStats> => {
     for (const filePath of filePaths) {
         try {
             const fullPath = path.join(translationsDir, filePath);
-            const content = await readFile(fullPath, 'utf8');
+            const content = await Bun.file(fullPath).text();
             const parsed = parseTranslationToCommon(JSON.parse(content));
             const excerpts = mapConversationToExcerpts(parsed);
             const isValid = excerpts.length > 0;

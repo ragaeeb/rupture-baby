@@ -76,6 +76,21 @@ const toRawRange = (normalizedStart: number, normalizedEnd: number, indexMap: nu
     return { end: rawEnd, start: rawStart };
 };
 
+const findContainingMarker = (context: ValidationContext, normalizedStart: number, normalizedEnd: number) => {
+    for (const marker of context.markers) {
+        if (normalizedStart >= marker.translationStart && normalizedEnd <= marker.translationEnd) {
+            return marker;
+        }
+    }
+    return null;
+};
+
+const toSegmentRange = (marker: TranslationMarker, normalizedStart: number, normalizedEnd: number): Range => {
+    const start = Math.max(marker.translationStart, normalizedStart) - marker.translationStart;
+    const end = Math.max(marker.translationStart, normalizedEnd) - marker.translationStart;
+    return { end, start };
+};
+
 const buildMarkers = (normalized: string, indexMap: number[], rawLength: number): TranslationMarker[] => {
     const { dashes, optionalSpace } = TRANSLATION_MARKER_PARTS;
     const headerPattern = new RegExp(`^(${MARKER_ID_PATTERN})${optionalSpace}${dashes}\\s*`, 'gm');
@@ -156,16 +171,14 @@ const makeErrorFromNormalized = (
     id?: string,
 ): ValidationError => {
     let resolvedId = id;
+    let containingMarker: TranslationMarker | null = null;
     if (!resolvedId) {
-        // Try to find which marker contains this error range
-        for (const marker of context.markers) {
-            // Check if error falls within the translation content of a marker
-            // We use loose bounds to catch errors at boundaries
-            if (normalizedStart >= marker.translationStart && normalizedEnd <= marker.translationEnd) {
-                resolvedId = marker.id;
-                break;
-            }
+        containingMarker = findContainingMarker(context, normalizedStart, normalizedEnd);
+        if (containingMarker) {
+            resolvedId = containingMarker.id;
         }
+    } else {
+        containingMarker = context.markers.find((marker) => marker.id === resolvedId) ?? null;
     }
 
     return {
@@ -173,6 +186,7 @@ const makeErrorFromNormalized = (
         matchText,
         message,
         range: toRawRange(normalizedStart, normalizedEnd, context.indexMap, context.rawResponse.length),
+        segmentRange: containingMarker ? toSegmentRange(containingMarker, normalizedStart, normalizedEnd) : undefined,
         type,
     };
 };

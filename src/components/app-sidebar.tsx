@@ -1,12 +1,11 @@
 'use client';
 
-import { ChevronRight, File, Folder, LayoutDashboard } from 'lucide-react';
+import { ChevronRight, File, Folder, LayoutDashboard, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type * as React from 'react';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
     Sidebar,
     SidebarContent,
@@ -32,6 +31,8 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
     const pathname = usePathname();
     const router = useRouter();
     const searchParams = useSearchParams();
+    const dashboardPath = pathname === '/dashboard' ? '/dashboard' : '/';
+    const isDashboardPath = pathname === '/' || pathname === '/dashboard';
     const filterQuery = (() => {
         const params = new URLSearchParams();
         const model = searchParams.get('model');
@@ -72,7 +73,7 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
         }
 
         const query = params.toString();
-        const currentPath = pathname.startsWith('/translations') ? pathname : '/dashboard';
+        const currentPath = pathname.startsWith('/translations') ? pathname : dashboardPath;
         router.push(query ? `${currentPath}?${query}` : currentPath, { scroll: false });
     };
 
@@ -84,8 +85,8 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
                     <SidebarGroupContent>
                         <SidebarMenu>
                             <SidebarMenuItem>
-                                <SidebarMenuButton asChild isActive={pathname === '/dashboard'} tooltip="Dashboard">
-                                    <Link href={`/dashboard${filterQuery}`}>
+                                <SidebarMenuButton asChild isActive={isDashboardPath} tooltip="Dashboard">
+                                    <Link href={`${dashboardPath}${filterQuery}`}>
                                         <LayoutDashboard />
                                         <span className="min-w-0 truncate">Dashboard</span>
                                     </Link>
@@ -105,73 +106,58 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
 
                 {translationStats ? (
                     <SidebarGroup>
-                        <SidebarGroupLabel>Filters</SidebarGroupLabel>
+                        <div className="flex items-center justify-between px-2">
+                            <SidebarGroupLabel>Filters</SidebarGroupLabel>
+                            {hasActiveFilters ? (
+                                <Button
+                                    aria-label="Clear filters"
+                                    className="size-7"
+                                    onClick={() => setFilter({ model: 'all', status: 'all' })}
+                                    size="icon"
+                                    variant="ghost"
+                                >
+                                    <X />
+                                </Button>
+                            ) : null}
+                        </div>
                         <SidebarGroupContent>
                             <div className="space-y-4 px-2">
                                 <div className="space-y-2">
-                                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    <p className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
                                         Model
                                     </p>
-                                    <div className="flex flex-wrap gap-2">
-                                        <Badge
-                                            variant={modelFilter === 'all' ? 'default' : 'outline'}
-                                            className="cursor-pointer"
-                                            onClick={() => setFilter({ model: 'all' })}
-                                        >
-                                            All
-                                        </Badge>
+                                    <select
+                                        aria-label="Filter by model"
+                                        className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                        value={modelFilter}
+                                        onChange={(event) => setFilter({ model: event.target.value as string | 'all' })}
+                                    >
+                                        <option value="all">All</option>
                                         {models.map((model) => (
-                                            <Badge
-                                                key={model}
-                                                variant={modelFilter === model ? 'default' : 'outline'}
-                                                className="cursor-pointer"
-                                                onClick={() => setFilter({ model })}
-                                            >
+                                            <option key={model} value={model}>
                                                 {model}
-                                            </Badge>
+                                            </option>
                                         ))}
-                                    </div>
+                                    </select>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    <p className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
                                         Status
                                     </p>
-                                    <div className="flex flex-wrap gap-2">
-                                        <Badge
-                                            variant={statusFilter === 'all' ? 'default' : 'outline'}
-                                            className="cursor-pointer"
-                                            onClick={() => setFilter({ status: 'all' })}
-                                        >
-                                            All
-                                        </Badge>
-                                        <Badge
-                                            variant={statusFilter === 'valid' ? 'default' : 'outline'}
-                                            className="cursor-pointer"
-                                            onClick={() => setFilter({ status: 'valid' })}
-                                        >
-                                            Valid
-                                        </Badge>
-                                        <Badge
-                                            variant={statusFilter === 'invalid' ? 'default' : 'outline'}
-                                            className="cursor-pointer"
-                                            onClick={() => setFilter({ status: 'invalid' })}
-                                        >
-                                            Invalid
-                                        </Badge>
-                                    </div>
-                                </div>
-
-                                {hasActiveFilters ? (
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="w-full justify-start px-0"
-                                        onClick={() => setFilter({ model: 'all', status: 'all' })}
+                                    <select
+                                        aria-label="Filter by status"
+                                        className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                        value={statusFilter}
+                                        onChange={(event) =>
+                                            setFilter({ status: event.target.value as 'all' | 'valid' | 'invalid' })
+                                        }
                                     >
-                                        Clear filters
-                                    </Button>
-                                ) : null}
+                                        <option value="all">All</option>
+                                        <option value="valid">Valid</option>
+                                        <option value="invalid">Invalid</option>
+                                    </select>
+                                </div>
                             </div>
                         </SidebarGroupContent>
                     </SidebarGroup>

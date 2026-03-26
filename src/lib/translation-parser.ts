@@ -379,6 +379,31 @@ const resolveBlackiyaMeta = (payload: unknown): Record<string, unknown> | null =
     return null;
 };
 
+const resolveRuptureMeta = (payload: unknown): CommonConversationExport['__rupture'] | null => {
+    if (typeof payload !== 'object' || payload === null) {
+        return null;
+    }
+
+    const objectPayload = payload as Record<string, unknown>;
+    if (typeof objectPayload.__rupture === 'object' && objectPayload.__rupture !== null) {
+        return objectPayload.__rupture as CommonConversationExport['__rupture'];
+    }
+
+    if (typeof objectPayload.data === 'object' && objectPayload.data !== null) {
+        const nestedData = objectPayload.data as Record<string, unknown>;
+        if (typeof nestedData.__rupture === 'object' && nestedData.__rupture !== null) {
+            return nestedData.__rupture as CommonConversationExport['__rupture'];
+        }
+    }
+
+    return null;
+};
+
+const attachRuptureMeta = (conversation: CommonConversationExport, payload: unknown): CommonConversationExport => {
+    const ruptureMeta = resolveRuptureMeta(payload);
+    return ruptureMeta ? { ...conversation, __rupture: ruptureMeta } : conversation;
+};
+
 const parseLegacyWrapper = (data: LegacyWrapper): CommonConversationExport | null => {
     if (data.format === 'original' && isBlackiyaOriginal(data.data)) {
         const common = convertBlackiyaOriginalToCommon(data.data);
@@ -412,17 +437,17 @@ const isCommonConversationExport = (data: unknown): data is CommonConversationEx
 export const parseTranslationToCommon = (data: unknown): CommonConversationExport => {
     // Check for Grok conversation first (most common format)
     if (isGrokConversation(data)) {
-        return parseGrokConversation(data);
+        return attachRuptureMeta(parseGrokConversation(data), data);
     }
 
     if (isBlackiyaOriginal(data)) {
-        return convertBlackiyaOriginalToCommon(data);
+        return attachRuptureMeta(convertBlackiyaOriginalToCommon(data), data);
     }
 
     if (isLegacyWrapper(data)) {
         const parsed = parseLegacyWrapper(data);
         if (parsed) {
-            return parsed;
+            return attachRuptureMeta(parsed, data);
         }
     }
 
