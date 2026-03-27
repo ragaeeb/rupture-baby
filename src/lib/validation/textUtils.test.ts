@@ -191,9 +191,9 @@ describe('parseTranslationsInOrder', () => {
         const input = ['P1 - first', 'P2 - mid', 'P1 - second'].join('\n');
         const entries = parseTranslationsInOrder(input);
         expect(entries).toEqual([
-            { id: 'P1', translation: 'first' },
-            { id: 'P2', translation: 'mid' },
-            { id: 'P1', translation: 'second' },
+            { id: 'P1', text: 'first' },
+            { id: 'P2', text: 'mid' },
+            { id: 'P1', text: 'second' },
         ]);
     });
 });

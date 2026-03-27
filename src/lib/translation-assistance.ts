@@ -1,4 +1,4 @@
-import 'server-only';
+import '@tanstack/react-start/server-only';
 
 import { getTranslationAssistProvider } from '@/lib/llm';
 import type { TranslationAssistRequest, TranslationAssistResponse } from './shell-types';

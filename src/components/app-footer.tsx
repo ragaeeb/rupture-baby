@@ -1,37 +1,6 @@
-'use client';
-
-import { useEffect, useState } from 'react';
-import { fetchAppMeta } from '@/lib/shell-api';
 import type { AppMetaResponse } from '@/lib/shell-types';
 
-const AppFooter = () => {
-    const [meta, setMeta] = useState<AppMetaResponse | null>(null);
-
-    useEffect(() => {
-        let isMounted = true;
-
-        const loadMeta = async () => {
-            try {
-                const payload = await fetchAppMeta();
-                if (!isMounted) {
-                    return;
-                }
-                setMeta(payload);
-            } catch {
-                if (!isMounted) {
-                    return;
-                }
-                setMeta(null);
-            }
-        };
-
-        loadMeta();
-
-        return () => {
-            isMounted = false;
-        };
-    }, []);
-
+const AppFooter = ({ meta }: { meta: AppMetaResponse | null }) => {
     const appLabel = meta?.name && meta?.version ? `${meta.name} v${meta.version}` : null;
 
     return (

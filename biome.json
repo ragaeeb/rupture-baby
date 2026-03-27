@@ -13,7 +13,17 @@
     },
     "files": {
         "ignoreUnknown": true,
-        "includes": ["**", "!node_modules", "!.next", "!dist", "!build", "!**/*.css"]
+        "includes": [
+            "**",
+            "!node_modules",
+            "!.next",
+            "!.output",
+            "!.tanstack",
+            "!dist",
+            "!build",
+            "!src/routeTree.gen.ts",
+            "!**/*.css"
+        ]
     },
     "formatter": {
         "enabled": true,
@@ -34,7 +44,6 @@
     },
     "linter": {
         "domains": {
-            "next": "recommended",
             "react": "recommended"
         },
         "enabled": true,

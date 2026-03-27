@@ -1,8 +1,7 @@
 'use client';
 
+import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { ChevronRight, File, Folder, LayoutDashboard, X } from 'lucide-react';
-import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -18,7 +17,9 @@ import {
     SidebarMenuSub,
     SidebarRail,
 } from '@/components/ui/sidebar';
+import { mergeBrowseFilters, pickBrowseFilters } from '@/lib/browse-search';
 import type { DashboardStatsResponse, TranslationTreeNode } from '@/lib/shell-types';
+import { filterTranslationTreeEntries } from '@/lib/translation-tree-filter';
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     entries: TranslationTreeNode[];
@@ -27,54 +28,40 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     selectedFilePath?: string | null;
 };
 
+const buildSearchHref = (pathname: string, search: Record<string, unknown>) => {
+    const searchParams = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(search)) {
+        if (typeof value === 'string' && value.length > 0) {
+            searchParams.set(key, value);
+        }
+    }
+
+    const searchString = searchParams.toString();
+    return searchString ? `${pathname}?${searchString}` : pathname;
+};
+
 export const AppSidebar = ({ entries, rootName, selectedFilePath, translationStats, ...props }: AppSidebarProps) => {
-    const pathname = usePathname();
-    const router = useRouter();
-    const searchParams = useSearchParams();
-    const dashboardPath = pathname === '/dashboard' ? '/dashboard' : '/';
+    const pathname = useLocation({ select: (location) => location.pathname });
+    const navigate = useNavigate();
+    const search = useSearch({ strict: false });
+    const dashboardPath: '/' | '/dashboard' = pathname === '/dashboard' ? '/dashboard' : '/';
     const isDashboardPath = pathname === '/' || pathname === '/dashboard';
-    const filterQuery = (() => {
-        const params = new URLSearchParams();
-        const model = searchParams.get('model');
-        const status = searchParams.get('status');
-
-        if (model) {
-            params.set('model', model);
-        }
-        if (status) {
-            params.set('status', status);
-        }
-
-        const query = params.toString();
-        return query ? `?${query}` : '';
-    })();
-    const modelFilter = searchParams.get('model') || 'all';
-    const statusFilter = searchParams.get('status') || 'all';
+    const filterSearch = pickBrowseFilters(search);
+    const modelFilter = typeof search.model === 'string' ? search.model : 'all';
+    const statusFilter = search.status === 'valid' || search.status === 'invalid' ? search.status : 'all';
     const hasActiveFilters = modelFilter !== 'all' || statusFilter !== 'all';
     const models = translationStats ? Object.keys(translationStats.modelBreakdown) : [];
+    const filteredEntries = filterTranslationTreeEntries(entries, translationStats, {
+        model: modelFilter,
+        status: statusFilter,
+    });
 
     const setFilter = (newFilter: { model?: string | 'all'; status?: 'all' | 'valid' | 'invalid' }) => {
-        const params = new URLSearchParams(searchParams.toString());
-
-        if (newFilter.model !== undefined) {
-            if (newFilter.model === 'all') {
-                params.delete('model');
-            } else {
-                params.set('model', newFilter.model);
-            }
-        }
-
-        if (newFilter.status !== undefined) {
-            if (newFilter.status === 'all') {
-                params.delete('status');
-            } else {
-                params.set('status', newFilter.status);
-            }
-        }
-
-        const query = params.toString();
         const currentPath = pathname.startsWith('/translations') ? pathname : dashboardPath;
-        router.push(query ? `${currentPath}?${query}` : currentPath, { scroll: false });
+        const nextSearch = mergeBrowseFilters(search, newFilter);
+
+        void navigate({ href: buildSearchHref(currentPath, nextSearch), resetScroll: false });
     };
 
     return (
@@ -86,7 +73,7 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
                         <SidebarMenu>
                             <SidebarMenuItem>
                                 <SidebarMenuButton asChild isActive={isDashboardPath} tooltip="Dashboard">
-                                    <Link href={`${dashboardPath}${filterQuery}`}>
+                                    <Link resetScroll={false} search={filterSearch} to={dashboardPath}>
                                         <LayoutDashboard />
                                         <span className="min-w-0 truncate">Dashboard</span>
                                     </Link>
@@ -94,7 +81,7 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
                             </SidebarMenuItem>
                             <SidebarMenuItem>
                                 <SidebarMenuButton asChild isActive={pathname === '/prompts'} tooltip="Prompts">
-                                    <Link href={`/prompts${filterQuery}`}>
+                                    <Link resetScroll={false} search={filterSearch} to="/prompts">
                                         <File />
                                         <span className="min-w-0 truncate">Prompts</span>
                                     </Link>
@@ -183,11 +170,11 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
                                     </CollapsibleTrigger>
                                     <CollapsibleContent>
                                         <SidebarMenuSub>
-                                            {entries.map((item) => (
+                                            {filteredEntries.map((item) => (
                                                 <Tree
                                                     item={item}
                                                     key={item.relativePath || item.name}
-                                                    linkQuery={filterQuery}
+                                                    linkSearch={filterSearch}
                                                     selectedFilePath={selectedFilePath}
                                                 />
                                             ))}
@@ -204,11 +191,10 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
     );
 };
 
-type TreeProps = { item: TranslationTreeNode; linkQuery: string; selectedFilePath?: string | null };
+type TreeProps = { item: TranslationTreeNode; linkSearch: Record<string, unknown>; selectedFilePath?: string | null };
 
-const Tree = ({ item, linkQuery, selectedFilePath }: TreeProps) => {
+const Tree = ({ item, linkSearch, selectedFilePath }: TreeProps) => {
     if (item.kind === 'file') {
-        const href = `/translations/${encodeURIComponent(item.relativePath)}${linkQuery}`;
         return (
             <SidebarMenuItem>
                 <SidebarMenuButton
@@ -216,7 +202,12 @@ const Tree = ({ item, linkQuery, selectedFilePath }: TreeProps) => {
                     className="data-[active=true]:bg-sidebar-accent"
                     isActive={selectedFilePath === item.relativePath}
                 >
-                    <Link href={href}>
+                    <Link
+                        params={{ fileNameId: encodeURIComponent(item.relativePath) }}
+                        resetScroll={false}
+                        search={linkSearch}
+                        to="/translations/$fileNameId"
+                    >
                         <File />
                         <span className="min-w-0 truncate text-xs" title={item.name}>
                             {item.name}
@@ -248,7 +239,7 @@ const Tree = ({ item, linkQuery, selectedFilePath }: TreeProps) => {
                             <Tree
                                 item={subItem}
                                 key={subItem.relativePath || subItem.name}
-                                linkQuery={linkQuery}
+                                linkSearch={linkSearch}
                                 selectedFilePath={selectedFilePath}
                             />
                         ))}

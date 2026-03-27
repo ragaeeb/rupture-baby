@@ -11,9 +11,9 @@
 # testing
 /coverage
 
-# next.js
-/.next/
-/out/
+# framework build output
+/.output/
+/.tanstack/
 
 # production
 /build
@@ -36,4 +36,4 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+/test-results

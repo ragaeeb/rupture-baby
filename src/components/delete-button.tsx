@@ -49,9 +49,9 @@ export const DeleteConfirmDialog = ({
     );
 };
 
-type DeleteButtonProps = { fileName: string; filePath: string; onSuccess: () => void };
+type DeleteButtonProps = { fileName: string; onDelete: () => Promise<void> };
 
-export const DeleteButton = ({ fileName, filePath, onSuccess }: DeleteButtonProps) => {
+export const DeleteButton = ({ fileName, onDelete }: DeleteButtonProps) => {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
 
@@ -59,26 +59,7 @@ export const DeleteButton = ({ fileName, filePath, onSuccess }: DeleteButtonProp
         setIsDeleting(true);
 
         try {
-            const response = await fetch(`/api/translations/delete?path=${encodeURIComponent(filePath)}`, {
-                method: 'DELETE',
-            });
-
-            if (!response.ok) {
-                const contentType = response.headers.get('content-type');
-                let errorMessage = 'Failed to delete file';
-
-                if (contentType?.includes('application/json')) {
-                    const error = await response.json();
-                    errorMessage = error.error || errorMessage;
-                } else {
-                    const text = await response.text();
-                    errorMessage = text || errorMessage;
-                }
-
-                throw new Error(errorMessage);
-            }
-
-            onSuccess();
+            await onDelete();
             setIsDeleteDialogOpen(false);
         } catch (error) {
             console.error('Failed to delete file:', error);

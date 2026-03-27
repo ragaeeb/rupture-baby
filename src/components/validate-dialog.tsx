@@ -105,7 +105,7 @@ export const ValidateDialog = ({ conversation }: ValidateDialogProps) => {
                                         <td
                                             className={
                                                 row.validationMessages.length > 0
-                                                    ? 'px-4 py-3 align-top font-mono text-[10px] font-semibold text-destructive'
+                                                    ? 'px-4 py-3 align-top font-mono font-semibold text-[10px] text-destructive'
                                                     : 'px-4 py-3 align-top font-mono text-[10px] text-muted-foreground'
                                             }
                                         >
@@ -118,7 +118,7 @@ export const ValidateDialog = ({ conversation }: ValidateDialogProps) => {
                                             <div
                                                 className={
                                                     row.validationMessages.length > 0
-                                                        ? 'rounded border border-destructive/30 bg-background px-3 py-2 whitespace-pre-wrap font-medium text-destructive shadow-sm'
+                                                        ? 'whitespace-pre-wrap rounded border border-destructive/30 bg-background px-3 py-2 font-medium text-destructive shadow-sm'
                                                         : 'whitespace-pre-wrap'
                                                 }
                                             >

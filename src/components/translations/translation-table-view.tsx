@@ -1,64 +1,10 @@
 'use client';
 
 import { Wrench } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { useState } from 'react';
 
-import { ClickToEditText } from '@/components/translations/click-to-edit-text';
+import { EditableTranslationContent } from '@/components/translations/editable-translation-content';
 import type { TranslationRowData, TranslationTableModel } from '@/lib/translation-file-view-model';
-import type { Range } from '@/lib/validation/types';
-
-type HighlightTone = 'amber' | 'destructive';
-
-type TextHighlight = { range: Range; tone: HighlightTone };
-
-const renderHighlightedText = (text: string, highlights: TextHighlight[]): ReactNode => {
-    const activeHighlights = highlights.filter((highlight) => highlight.range.start < highlight.range.end);
-
-    if (activeHighlights.length === 0) {
-        return text;
-    }
-
-    const boundaries = new Set<number>([0, text.length]);
-    for (const highlight of activeHighlights) {
-        boundaries.add(highlight.range.start);
-        boundaries.add(highlight.range.end);
-    }
-
-    const orderedBoundaries = [...boundaries].sort((left, right) => left - right);
-    const nodes: ReactNode[] = [];
-
-    for (let index = 0; index < orderedBoundaries.length - 1; index += 1) {
-        const start = orderedBoundaries[index];
-        const end = orderedBoundaries[index + 1];
-
-        if (start === undefined || end === undefined || start === end) {
-            continue;
-        }
-
-        const slice = text.slice(start, end);
-        const activeTone = activeHighlights.find(
-            (highlight) => highlight.range.start <= start && highlight.range.end >= end,
-        )?.tone;
-
-        if (!activeTone) {
-            nodes.push(slice);
-            continue;
-        }
-
-        const className =
-            activeTone === 'destructive'
-                ? 'rounded-sm bg-destructive/15 px-0.5 font-semibold text-destructive ring-1 ring-destructive/30 ring-inset'
-                : 'rounded-sm bg-amber-200/60 px-0.5 font-semibold text-amber-950 ring-1 ring-amber-400/40 ring-inset';
-
-        nodes.push(
-            <span key={`${start}-${end}-${slice}`} className={className}>
-                {slice}
-            </span>,
-        );
-    }
-
-    return nodes;
-};
 
 const getRowClassName = (row: TranslationRowData) => {
     if (row.validationMessages.length > 0) {
@@ -131,12 +77,6 @@ const TranslationRow = ({
     row: TranslationRowData;
 }) => {
     const isEditable = row.validationMessages.length > 0 || row.isDirty;
-    const displayValue = row.translatedText
-        ? renderHighlightedText(row.translatedText, [
-              ...row.highlightRanges.map((range) => ({ range, tone: 'destructive' as const })),
-              ...row.patchHighlightRanges.map((range) => ({ range, tone: 'amber' as const })),
-          ])
-        : '—';
 
     return (
         <tr className={getRowClassName(row)}>
@@ -145,10 +85,9 @@ const TranslationRow = ({
                 {row.arabic}
             </td>
             <td className="relative px-4 py-3 align-top text-[10px]">
-                <ClickToEditText
+                <EditableTranslationContent
                     ariaLabel={`Edit translation for ${row.id}`}
                     buttonClassName={getTranslationControlClassName(row, 'button')}
-                    displayValue={displayValue}
                     editable={isEditable}
                     isEditing={isEditing}
                     onCommit={(nextText) => {
@@ -158,9 +97,11 @@ const TranslationRow = ({
                     }}
                     onStartEditing={() => onStartEditing(row.id)}
                     onStopEditing={onStopEditing}
+                    patchHighlightRanges={row.patchHighlightRanges}
+                    text={row.translatedText}
                     textClassName={getTranslationTextClassName(row)}
                     textareaClassName={`${getTranslationControlClassName(row, 'textarea')} ${row.hasPatch ? 'pr-8' : ''}`}
-                    value={row.translatedText}
+                    validationHighlightRanges={row.highlightRanges}
                 />
                 {row.validationMessages.length > 0 ? (
                     <div className={getValidationMessagesClassName(row)}>

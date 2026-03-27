@@ -1,7 +1,7 @@
 'use client';
 
-import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Badge } from '@/components/ui/badge';
 import type { CommonConversationExport } from '@/lib/translation-types';
 
 const formatTimestamp = (isoString: string): string => {
@@ -16,9 +16,7 @@ const formatTimestamp = (isoString: string): string => {
     return `${month} ${day}, ${year} ${hours12}:${minutes} ${ampm}`;
 };
 
-type ConversationViewProps = {
-    conversation: CommonConversationExport;
-};
+type ConversationViewProps = { conversation: CommonConversationExport };
 
 export const ConversationView = ({ conversation }: ConversationViewProps) => {
     return (
@@ -69,8 +67,8 @@ export const ConversationView = ({ conversation }: ConversationViewProps) => {
                         <AccordionContent>
                             <div className="rounded-lg border bg-card p-4">
                                 <ol className="list-decimal space-y-2 pl-4">
-                                    {conversation.reasoning.map((step, index) => (
-                                        <li key={index} className="whitespace-pre-wrap text-sm">
+                                    {conversation.reasoning.map((step) => (
+                                        <li key={step} className="whitespace-pre-wrap text-sm">
                                             {step}
                                         </li>
                                     ))}

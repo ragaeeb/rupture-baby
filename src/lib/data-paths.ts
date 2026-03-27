@@ -1,3 +1,5 @@
+import '@tanstack/react-start/server-only';
+
 type PathConfigKey = 'compilationFilePath' | 'translationsDir';
 
 export class MissingPathConfigError extends Error {

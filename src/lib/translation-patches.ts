@@ -9,7 +9,13 @@ export type RupturePatches = Record<string, RupturePatch>;
 export type RupturePatchMetadata = {
     appliedAt: string;
     highlightRanges?: Range[];
-    source: { kind: 'llm'; model: string; modelVersion?: string; provider: 'google'; task: 'arabic_leak_correction' };
+    source: {
+        kind: 'llm';
+        model: string;
+        modelVersion?: string;
+        provider: 'google' | 'huggingface' | 'openrouter';
+        task: 'arabic_leak_correction';
+    };
 };
 export type RupturePatchMetadataMap = Record<string, RupturePatchMetadata>;
 
@@ -58,7 +64,9 @@ export const isRupturePatchMetadata = (value: unknown): value is RupturePatchMet
                 ))) &&
         value.source.kind === 'llm' &&
         typeof value.source.model === 'string' &&
-        value.source.provider === 'google' &&
+        (value.source.provider === 'google' ||
+            value.source.provider === 'huggingface' ||
+            value.source.provider === 'openrouter') &&
         value.source.task === 'arabic_leak_correction' &&
         (typeof value.source.modelVersion === 'string' || typeof value.source.modelVersion === 'undefined')
     );

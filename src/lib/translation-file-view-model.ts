@@ -1,3 +1,4 @@
+import { applyArabicLeakCorrectionsToText } from './arabic-leak-corrections';
 import type { ArabicLeakCorrection, ArabicLeakCorrectionExcerpt } from './shell-types';
 import { validateConversationExcerpts } from './translation-parser';
 import {
@@ -62,7 +63,9 @@ const mergeRupturePatchMetadata = (
                 isRecord(metadata.source) &&
                 metadata.source.kind === 'llm' &&
                 typeof metadata.source.model === 'string' &&
-                metadata.source.provider === 'google' &&
+                (metadata.source.provider === 'google' ||
+                    metadata.source.provider === 'huggingface' ||
+                    metadata.source.provider === 'openrouter') &&
                 metadata.source.task === 'arabic_leak_correction'
             ) {
                 mergedPatchMetadata[excerptId] = metadata as RupturePatchMetadata;
@@ -176,6 +179,7 @@ export const updatePendingEdits = (
 export const buildTranslationTableModel = (
     conversation: CommonConversationExport | null,
     pendingEdits: PendingEditMap,
+    filePath?: string,
 ): TranslationTableModel | null => {
     if (!conversation) {
         return null;
@@ -227,7 +231,19 @@ export const buildTranslationTableModel = (
     return {
         arabicLeakExcerpts: rows
             .filter((row) => errorsById.get(row.id)?.some((error) => error.type === 'arabic_leak'))
-            .map((row) => ({ arabic: row.arabic, id: row.id, translation: row.translatedText })),
+            .map((row) => ({
+                arabic: row.arabic,
+                filePath: filePath ?? '',
+                id: row.id,
+                leakHints: [
+                    ...new Set(
+                        (errorsById.get(row.id) ?? [])
+                            .filter((error) => error.type === 'arabic_leak' && error.matchText.trim().length > 0)
+                            .map((error) => error.matchText.trim()),
+                    ),
+                ],
+                translation: row.translatedText,
+            })),
         hasAlignmentErrors: validationErrors.some((error) => ALIGNMENT_ERROR_TYPES.has(error.type)),
         hasPatches: rows.some((row) => row.hasPatch),
         isValid: validationErrors.length === 0,
@@ -238,66 +254,21 @@ export const buildTranslationTableModel = (
     };
 };
 
-const countOccurrences = (text: string, needle: string) => {
-    if (!needle) {
-        return 0;
-    }
-
-    let count = 0;
-    let startIndex = 0;
-
-    while (startIndex <= text.length) {
-        const matchIndex = text.indexOf(needle, startIndex);
-        if (matchIndex === -1) {
-            return count;
-        }
-
-        count += 1;
-        startIndex = matchIndex + needle.length;
-    }
-
-    return count;
-};
-
-const replaceAllLiteral = (text: string, searchValue: string, replaceValue: string) => {
-    if (!searchValue) {
-        return { nextText: text, replacementCount: 0, replacementRanges: [] as Range[] };
-    }
-
-    let cursor = 0;
-    let nextText = '';
-    let replacementCount = 0;
-    const replacementRanges: Range[] = [];
-
-    while (cursor <= text.length) {
-        const matchIndex = text.indexOf(searchValue, cursor);
-        if (matchIndex === -1) {
-            nextText += text.slice(cursor);
-            return { nextText, replacementCount, replacementRanges };
-        }
-
-        nextText += text.slice(cursor, matchIndex);
-        const replacementStart = nextText.length;
-        nextText += replaceValue;
-        replacementRanges.push({ end: replacementStart + replaceValue.length, start: replacementStart });
-        replacementCount += 1;
-        cursor = matchIndex + searchValue.length;
-    }
-
-    return { nextText, replacementCount, replacementRanges };
-};
-
 export const applyArabicLeakCorrectionsToPendingEdits = (
     model: TranslationTableModel | null,
     currentEdits: PendingEditMap,
     corrections: ArabicLeakCorrection[],
     metadata: RupturePatchMetadata,
+    filePath: string,
 ) => {
     if (!model) {
         return { issues: ['Failed to parse conversation.'], nextEdits: currentEdits, updatedRowCount: 0 };
     }
 
     const rowsById = new Map(model.rows.map((row) => [row.id, row] as const));
+    const leakHintsById = new Map(
+        model.arabicLeakExcerpts.map((excerpt) => [excerpt.id, excerpt.leakHints ?? []] as const),
+    );
     const correctionsById = new Map<string, ArabicLeakCorrection[]>();
 
     for (const correction of corrections) {
@@ -317,22 +288,15 @@ export const applyArabicLeakCorrectionsToPendingEdits = (
             continue;
         }
 
-        let nextText = row.translatedText;
-        let rowChanged = false;
-        const rowHighlightRanges: Range[] = [];
-
-        for (const correction of excerptCorrections) {
-            const occurrenceCount = countOccurrences(nextText, correction.match);
-            if (occurrenceCount === 0) {
-                issues.push(`Could not find "${correction.match}" in excerpt ${excerptId}.`);
-                continue;
-            }
-
-            const replacementResult = replaceAllLiteral(nextText, correction.match, correction.replacement);
-            nextText = replacementResult.nextText;
-            rowHighlightRanges.push(...replacementResult.replacementRanges);
-            rowChanged = true;
-        }
+        const fileCorrections = excerptCorrections.filter((correction) => correction.filePath === filePath);
+        const replacementResult = applyArabicLeakCorrectionsToText(
+            excerptId,
+            row.translatedText,
+            fileCorrections,
+            leakHintsById.get(excerptId) ?? [],
+        );
+        const { issues: rowIssues, nextText, replacementRanges: rowHighlightRanges, rowChanged } = replacementResult;
+        issues.push(...rowIssues);
 
         if (!rowChanged || nextText === row.translatedText) {
             continue;
