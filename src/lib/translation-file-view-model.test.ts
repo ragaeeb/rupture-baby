@@ -31,6 +31,6 @@ describe('buildTranslationTableModel', () => {
         expect(model.hasPatches).toBe(true);
         expect(model.patchedRowCount).toBe(1);
         expect(model.rows[0]?.hasPatch).toBe(true);
-        expect(model.rows[0]?.patchHighlightRanges.length).toBeGreaterThan(0);
+        expect(model.rows[0]?.patchHighlights.length).toBeGreaterThan(0);
     });
 });

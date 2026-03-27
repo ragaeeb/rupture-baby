@@ -1,4 +1,4 @@
-import type { RupturePatchMetadata } from '@/lib/translation-patches';
+import type { RuptureHighlight, RupturePatchMetadata } from '@/lib/translation-patches';
 import type { Range } from '@/lib/validation/types';
 
 export type JsonValue = boolean | null | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -42,7 +42,7 @@ export type InvalidExcerptRow = {
     id: string | null;
     messages: string[];
     model?: string;
-    patchHighlightRanges: Range[];
+    patchHighlights: RuptureHighlight[];
     translation: string | null;
     validationHighlightRanges: Range[];
 };
@@ -69,6 +69,9 @@ export type AppMetaResponse = {
 export type PromptOption = { content: string; id: string; name: string };
 
 export type PromptStateResponse = { options: PromptOption[]; selectedPromptContent: string; selectedPromptId: string };
+export type AssistProviderId = 'cloudflare' | 'gemini' | 'hf';
+export type AssistProviderOption = { id: AssistProviderId; isConfigured: boolean; label: string; model: string };
+export type AppSettingsResponse = { providers: AssistProviderOption[]; selectedAssistProvider: AssistProviderId };
 
 export type BrowseShellData = {
     meta: AppMetaResponse | null;
@@ -82,6 +85,12 @@ export type PromptsPageData = {
     error: string | null;
     meta: AppMetaResponse | null;
     promptState: PromptStateResponse | null;
+};
+
+export type SettingsPageData = {
+    error: string | null;
+    meta: AppMetaResponse | null;
+    settings: AppSettingsResponse | null;
 };
 
 export type DeleteTranslationResponse = { deletedPath: string; success: true };
@@ -101,6 +110,7 @@ export type TranslationAssistTask = 'arabic_leak_correction';
 
 export type TranslationAssistRequest = {
     excerpts: ArabicLeakCorrectionExcerpt[];
+    providerId?: AssistProviderId;
     scope: TranslationAssistScope;
     task: 'arabic_leak_correction';
 };
@@ -110,7 +120,7 @@ export type TranslationAssistResponse = {
     model: string;
     modelVersion?: string;
     patchMetadata: RupturePatchMetadata;
-    provider: 'google' | 'huggingface';
+    provider: 'cloudflare' | 'google' | 'huggingface';
     scope: TranslationAssistScope;
     task: 'arabic_leak_correction';
 };

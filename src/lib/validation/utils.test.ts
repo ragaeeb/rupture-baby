@@ -15,4 +15,15 @@ describe('validateTranslationResponse', () => {
             }),
         );
     });
+
+    it('should flag consecutive Arabic words as one leak block', () => {
+        const result = validateTranslationResponse(
+            [{ id: 'P1', text: 'نص عربي' }],
+            'P1 - this is the وجه استشهاد المؤلف بهذه الآية, for it indicates',
+        );
+
+        expect(result.errors).toContainEqual(
+            expect.objectContaining({ id: 'P1', matchText: 'وجه استشهاد المؤلف بهذه الآية', type: 'arabic_leak' }),
+        );
+    });
 });

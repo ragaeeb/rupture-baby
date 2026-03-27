@@ -5,32 +5,104 @@ import type { TranslationAssistProvider } from '@/lib/llm/types';
 import type { ArabicLeakCorrection, TranslationAssistRequest } from '@/lib/shell-types';
 
 const DEFAULT_MAX_EXCERPTS_PER_REQUEST = 10;
-const DEFAULT_MODEL = 'meta-llama/Llama-3.3-70B-Instruct';
-const HUGGING_FACE_CHAT_COMPLETIONS_URL = 'https://router.huggingface.co/v1/chat/completions';
 const INTER_BATCH_DELAY_MS = { max: 900, min: 300 } as const;
-export const HUGGING_FACE_PROVIDER_ID = 'hf';
+const MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
-const requireHuggingFaceToken = () => {
-    const token = process.env.HF_MODEL_TOKEN?.trim();
+export const CLOUD_FLARE_PROVIDER_ID = 'cloudflare';
+
+const requireCloudflareToken = () => {
+    const token = process.env.CLOUDFLARE_WORKERS_AI_TOKEN?.trim();
     if (!token) {
-        throw new Error('HF_MODEL_TOKEN is not set on the server.');
+        throw new Error('CLOUDFLARE_WORKERS_AI_TOKEN is not set on the server.');
     }
     return token;
 };
 
-const getHuggingFaceModel = () => process.env.HF_MODEL_ID?.trim() || DEFAULT_MODEL;
+const requireCloudflareAccountId = () => {
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+    if (!accountId) {
+        throw new Error('CLOUDFLARE_ACCOUNT_ID is not set on the server.');
+    }
+    return accountId;
+};
+
+const getCloudflareRunUrl = () =>
+    `https://api.cloudflare.com/client/v4/accounts/${requireCloudflareAccountId()}/ai/run/${MODEL}`;
 
 const getMaxExcerptsPerRequest = () => {
-    const configuredValue = Number.parseInt(
-        process.env.LLM_ASSIST_MAX_EXCERPTS_PER_REQUEST ?? process.env.GEMINI_ASSIST_MAX_EXCERPTS_PER_REQUEST ?? '',
-        10,
-    );
-
+    const configuredValue = Number.parseInt(process.env.LLM_ASSIST_MAX_EXCERPTS_PER_REQUEST ?? '', 10);
     if (!Number.isFinite(configuredValue) || configuredValue < 1) {
         return DEFAULT_MAX_EXCERPTS_PER_REQUEST;
     }
-
     return configuredValue;
+};
+
+const chunkAssistRequest = (request: TranslationAssistRequest) => {
+    const chunks: TranslationAssistRequest['excerpts'][] = [];
+    const maxExcerptsPerRequest = getMaxExcerptsPerRequest();
+
+    for (let index = 0; index < request.excerpts.length; index += maxExcerptsPerRequest) {
+        const chunk = request.excerpts.slice(index, index + maxExcerptsPerRequest);
+        if (chunk.length > 0) {
+            chunks.push(chunk);
+        }
+    }
+
+    return chunks;
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getInterBatchDelayMs = () =>
+    INTER_BATCH_DELAY_MS.min + Math.floor(Math.random() * (INTER_BATCH_DELAY_MS.max - INTER_BATCH_DELAY_MS.min + 1));
+
+const getResponsePreview = (rawText: string, maxLength = 1500) =>
+    rawText.length <= maxLength
+        ? rawText
+        : `${rawText.slice(0, maxLength)}... [truncated ${rawText.length - maxLength} chars]`;
+
+const getStructuredPreview = (value: unknown, maxLength = 3000) => {
+    const serialized = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    return getResponsePreview(serialized, maxLength);
+};
+
+const getTextFromContentItem = (item: unknown): string => {
+    if (typeof item === 'string') {
+        return item;
+    }
+
+    if (typeof item === 'object' && item !== null) {
+        if ('text' in item && typeof item.text === 'string') {
+            return item.text;
+        }
+
+        if ('response' in item && typeof item.response === 'string') {
+            return item.response;
+        }
+    }
+
+    return '';
+};
+
+const getResponseText = (content: unknown): string => {
+    if (typeof content === 'string') {
+        return content.trim();
+    }
+
+    if (Array.isArray(content)) {
+        return content.map(getTextFromContentItem).join('').trim();
+    }
+
+    if (typeof content === 'object' && content !== null) {
+        const extractedText = getTextFromContentItem(content).trim();
+        if (extractedText) {
+            return extractedText;
+        }
+
+        return JSON.stringify(content);
+    }
+
+    return '';
 };
 
 const serializeError = (error: unknown) => {
@@ -58,62 +130,7 @@ const serializeError = (error: unknown) => {
     };
 };
 
-const chunkAssistRequest = (request: TranslationAssistRequest) => {
-    const chunks: TranslationAssistRequest['excerpts'][] = [];
-    const maxExcerptsPerRequest = getMaxExcerptsPerRequest();
-
-    for (let index = 0; index < request.excerpts.length; index += maxExcerptsPerRequest) {
-        const chunk = request.excerpts.slice(index, index + maxExcerptsPerRequest);
-        if (chunk.length > 0) {
-            chunks.push(chunk);
-        }
-    }
-
-    return chunks;
-};
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const getInterBatchDelayMs = () =>
-    INTER_BATCH_DELAY_MS.min + Math.floor(Math.random() * (INTER_BATCH_DELAY_MS.max - INTER_BATCH_DELAY_MS.min + 1));
-
-const getResponseText = (content: unknown) => {
-    if (typeof content === 'string') {
-        return content.trim();
-    }
-
-    if (Array.isArray(content)) {
-        return content
-            .map((item) => {
-                if (typeof item === 'string') {
-                    return item;
-                }
-
-                if (typeof item === 'object' && item !== null && 'text' in item && typeof item.text === 'string') {
-                    return item.text;
-                }
-
-                return '';
-            })
-            .join('')
-            .trim();
-    }
-
-    return '';
-};
-
-const getResponsePreview = (rawText: string, maxLength = 1500) =>
-    rawText.length <= maxLength
-        ? rawText
-        : `${rawText.slice(0, maxLength)}... [truncated ${rawText.length - maxLength} chars]`;
-
-const getStructuredPreview = (value: unknown, maxLength = 3000) => {
-    const serialized = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-    return getResponsePreview(serialized, maxLength);
-};
-
 const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts']) => {
-    const model = getHuggingFaceModel();
     const excerptById = new Map<string, TranslationAssistRequest['excerpts'][number]>();
 
     for (const excerpt of chunk) {
@@ -132,14 +149,14 @@ const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts
     }));
     const prompt = buildArabicLeakCorrectionPrompt(chunk);
 
-    console.info('[huggingface] outbound request payload', {
+    console.info('[cloudflare] outbound request payload', {
         excerptCount: chunk.length,
         excerptsPreview: getStructuredPreview(outboundExcerpts),
-        model,
+        model: MODEL,
         promptPreview: getResponsePreview(prompt, 4000),
     });
 
-    const response = await fetch(HUGGING_FACE_CHAT_COMPLETIONS_URL, {
+    const response = await fetch(getCloudflareRunUrl(), {
         body: JSON.stringify({
             messages: [
                 {
@@ -149,17 +166,15 @@ const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts
                 },
                 { content: prompt, role: 'user' },
             ],
-            model,
-            response_format: { type: 'json_object' },
             temperature: 0,
         }),
-        headers: { Authorization: `Bearer ${requireHuggingFaceToken()}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${requireCloudflareToken()}`, 'Content-Type': 'application/json' },
         method: 'POST',
     });
 
     const rawText = await response.text();
-    console.info('[huggingface] raw response payload', {
-        model,
+    console.info('[cloudflare] raw response payload', {
+        model: MODEL,
         ok: response.ok,
         preview: getResponsePreview(rawText),
         status: response.status,
@@ -167,71 +182,69 @@ const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts
     });
 
     if (!response.ok) {
-        throw new Error(`Hugging Face request failed (${response.status}): ${rawText}`);
+        throw new Error(`Cloudflare Workers AI request failed (${response.status}): ${rawText}`);
     }
 
     const payload = JSON.parse(rawText) as {
-        choices?: Array<{ message?: { content?: unknown } }>;
-        id?: string;
-        model?: string;
-        usage?: unknown;
+        errors?: unknown[];
+        messages?: unknown[];
+        result?: { response?: string };
+        success?: boolean;
     };
 
-    console.info('[huggingface] parsed response payload', {
-        choiceCount: payload.choices?.length ?? 0,
-        model: payload.model ?? model,
-        responseId: payload.id,
-        usage: payload.usage,
+    console.info('[cloudflare] parsed response payload', {
+        errors: payload.errors,
+        messages: payload.messages,
+        model: MODEL,
+        resultPreview: getStructuredPreview(payload.result),
+        success: payload.success,
     });
 
-    const responseText = getResponseText(payload.choices?.[0]?.message?.content);
+    const responseText = getResponseText(payload.result?.response);
     if (!responseText) {
-        throw new Error('Hugging Face returned an empty response.');
+        throw new Error('Cloudflare Workers AI returned an empty response.');
     }
 
-    console.info('[huggingface] decoded assistant content', {
-        model: payload.model ?? model,
+    console.info('[cloudflare] decoded assistant content', {
+        model: MODEL,
         preview: getResponsePreview(responseText, 4000),
-        responseId: payload.id,
     });
 
     const corrections = parseArabicLeakCorrectionResponse(responseText).map((correction) => {
         const excerpt = excerptById.get(correction.id);
         if (!excerpt) {
-            throw new Error(`Hugging Face returned a correction for unknown excerpt id "${correction.id}".`);
+            throw new Error(`Cloudflare returned a correction for unknown excerpt id "${correction.id}".`);
         }
 
         return { ...correction, filePath: excerpt.filePath };
     });
 
-    console.info('[huggingface] mapped corrections', {
+    console.info('[cloudflare] mapped corrections', {
         correctionCount: corrections.length,
         correctionsPreview: getStructuredPreview(corrections),
-        model: payload.model ?? model,
-        responseId: payload.id,
+        model: MODEL,
     });
 
-    return { corrections, model: payload.model ?? model, responseId: payload.id };
+    return corrections;
 };
 
-export const getHuggingFaceAssistModel = () => getHuggingFaceModel();
-export const isHuggingFaceAssistConfigured = () => Boolean(process.env.HF_MODEL_TOKEN?.trim());
+export const isCloudflareAssistConfigured = () =>
+    Boolean(process.env.CLOUDFLARE_WORKERS_AI_TOKEN?.trim() && process.env.CLOUDFLARE_ACCOUNT_ID?.trim());
 
-export const huggingFaceTranslationAssistProvider: TranslationAssistProvider = {
-    id: HUGGING_FACE_PROVIDER_ID,
-    model: getHuggingFaceModel(),
+export const getCloudflareAssistModel = () => MODEL;
+
+export const cloudflareTranslationAssistProvider: TranslationAssistProvider = {
+    id: CLOUD_FLARE_PROVIDER_ID,
+    model: MODEL,
     requestAssistance: async (request) => {
         const startedAt = performance.now();
-        const excerptCount = request.excerpts.length;
         const chunks = chunkAssistRequest(request);
-        const model = getHuggingFaceModel();
-        const maxExcerptsPerRequest = getMaxExcerptsPerRequest();
 
-        console.info('[huggingface] assist request', {
+        console.info('[cloudflare] assist request', {
             chunkCount: chunks.length,
-            excerptCount,
-            maxExcerptsPerRequest,
-            model,
+            excerptCount: request.excerpts.length,
+            maxExcerptsPerRequest: getMaxExcerptsPerRequest(),
+            model: MODEL,
             scope: request.scope,
             task: request.task,
         });
@@ -242,34 +255,33 @@ export const huggingFaceTranslationAssistProvider: TranslationAssistProvider = {
             const chunk = chunks[chunkIndex];
             const chunkStartedAt = performance.now();
 
-            console.info('[huggingface] assist chunk request', {
+            console.info('[cloudflare] assist chunk request', {
                 chunkExcerptCount: chunk.length,
                 chunkIndex: chunkIndex + 1,
                 chunkTotal: chunks.length,
-                model,
+                model: MODEL,
             });
 
             try {
-                const chunkResult = await requestChunkCorrections(chunk);
-                corrections.push(...chunkResult.corrections);
+                const chunkCorrections = await requestChunkCorrections(chunk);
+                corrections.push(...chunkCorrections);
 
-                console.info('[huggingface] assist chunk response', {
-                    chunkCorrectionCount: chunkResult.corrections.length,
+                console.info('[cloudflare] assist chunk response', {
+                    chunkCorrectionCount: chunkCorrections.length,
                     chunkDurationMs: Math.round(performance.now() - chunkStartedAt),
                     chunkIndex: chunkIndex + 1,
                     chunkTotal: chunks.length,
-                    model: chunkResult.model,
-                    responseId: chunkResult.responseId,
+                    model: MODEL,
                 });
             } catch (error) {
-                console.error('[huggingface] assist request failed', {
+                console.error('[cloudflare] assist request failed', {
                     chunkExcerptCount: chunk.length,
                     chunkIndex: chunkIndex + 1,
                     chunkTotal: chunks.length,
                     durationMs: Math.round(performance.now() - startedAt),
                     error: serializeError(error),
-                    excerptCount,
-                    model,
+                    excerptCount: request.excerpts.length,
+                    model: MODEL,
                     scope: request.scope,
                     task: request.task,
                 });
@@ -278,7 +290,7 @@ export const huggingFaceTranslationAssistProvider: TranslationAssistProvider = {
 
             if (chunkIndex < chunks.length - 1) {
                 const delayMs = getInterBatchDelayMs();
-                console.info('[huggingface] assist inter-batch delay', {
+                console.info('[cloudflare] assist inter-batch delay', {
                     chunkIndex: chunkIndex + 1,
                     delayMs,
                     remainingChunks: chunks.length - chunkIndex - 1,
@@ -287,22 +299,22 @@ export const huggingFaceTranslationAssistProvider: TranslationAssistProvider = {
             }
         }
 
-        console.info('[huggingface] assist response', {
+        console.info('[cloudflare] assist response', {
             chunkCount: chunks.length,
             correctionCount: corrections.length,
             durationMs: Math.round(performance.now() - startedAt),
-            excerptCount,
-            model,
+            excerptCount: request.excerpts.length,
+            model: MODEL,
         });
 
         return {
             corrections,
-            model,
+            model: MODEL,
             patchMetadata: {
                 appliedAt: new Date().toISOString(),
-                source: { kind: 'llm', model, provider: 'huggingface', task: 'arabic_leak_correction' },
+                source: { kind: 'llm', model: MODEL, provider: 'cloudflare', task: 'arabic_leak_correction' },
             },
-            provider: 'huggingface',
+            provider: 'cloudflare',
             scope: request.scope,
             task: request.task,
         };

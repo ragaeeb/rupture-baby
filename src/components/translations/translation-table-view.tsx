@@ -97,7 +97,7 @@ const TranslationRow = ({
                     }}
                     onStartEditing={() => onStartEditing(row.id)}
                     onStopEditing={onStopEditing}
-                    patchHighlightRanges={row.patchHighlightRanges}
+                    patchHighlights={row.patchHighlights}
                     text={row.translatedText}
                     textClassName={getTranslationTextClassName(row)}
                     textareaClassName={`${getTranslationControlClassName(row, 'textarea')} ${row.hasPatch ? 'pr-8' : ''}`}

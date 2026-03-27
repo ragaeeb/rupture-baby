@@ -10,7 +10,7 @@ const runStartupLogging = async () => {
     didRunStartupLogging = true;
 
     const { getTranslationAssistProviderInfo } = await import('./lib/llm');
-    console.info('[llm] startup', getTranslationAssistProviderInfo());
+    console.info('[llm] startup', await getTranslationAssistProviderInfo());
 };
 
 export default createServerEntry({

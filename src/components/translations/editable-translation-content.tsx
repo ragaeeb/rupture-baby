@@ -2,6 +2,7 @@
 
 import { ClickToEditText } from '@/components/translations/click-to-edit-text';
 import { TranslationTextContent } from '@/components/translations/translation-text-content';
+import type { RuptureHighlight } from '@/lib/translation-patches';
 import type { Range } from '@/lib/validation/types';
 
 type EditableTranslationContentProps = {
@@ -12,7 +13,7 @@ type EditableTranslationContentProps = {
     onCommit: (nextText: string) => void;
     onStartEditing: () => void;
     onStopEditing: () => void;
-    patchHighlightRanges?: Range[];
+    patchHighlights?: RuptureHighlight[];
     text: string;
     textClassName: string;
     textareaClassName: string;
@@ -27,7 +28,7 @@ export const EditableTranslationContent = ({
     onCommit,
     onStartEditing,
     onStopEditing,
-    patchHighlightRanges = [],
+    patchHighlights = [],
     text,
     textClassName,
     textareaClassName,
@@ -35,7 +36,7 @@ export const EditableTranslationContent = ({
 }: EditableTranslationContentProps) => {
     const displayValue = (
         <TranslationTextContent
-            patchHighlightRanges={patchHighlightRanges}
+            patchHighlights={patchHighlights}
             text={text}
             textClassName=""
             validationHighlightRanges={validationHighlightRanges}

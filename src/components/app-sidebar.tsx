@@ -1,7 +1,7 @@
 'use client';
 
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { ChevronRight, File, Folder, LayoutDashboard, X } from 'lucide-react';
+import { ChevronRight, File, Folder, LayoutDashboard, Settings2, X } from 'lucide-react';
 import type * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -84,6 +84,14 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
                                     <Link resetScroll={false} search={filterSearch} to="/prompts">
                                         <File />
                                         <span className="min-w-0 truncate">Prompts</span>
+                                    </Link>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                            <SidebarMenuItem>
+                                <SidebarMenuButton asChild isActive={pathname === '/settings'} tooltip="Settings">
+                                    <Link resetScroll={false} search={filterSearch} to="/settings">
+                                        <Settings2 />
+                                        <span className="min-w-0 truncate">Settings</span>
                                     </Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>

@@ -8,6 +8,7 @@ import { EditableTranslationContent } from '@/components/translations/editable-t
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { getStoredAssistProvider } from '@/lib/assist-provider-storage';
 import {
     applyArabicLeakCorrectionsToInvalidRows,
     getInvalidPendingEditKey,
@@ -17,7 +18,7 @@ import {
 import { commitTranslationPatch, requestArabicLeakCorrections } from '@/lib/server-functions';
 import type { InvalidExcerptsResponse } from '@/lib/shell-types';
 import { getCommitButtonLabel } from '@/lib/translation-file-view-model';
-import { getRupturePatchHighlightRanges } from '@/lib/translation-patches';
+import { getRuptureHighlightsFromMetadata, getRupturePatchHighlightRanges } from '@/lib/translation-patches';
 import { VALIDATION_ERROR_TYPE_INFO } from '@/lib/validation/utils';
 
 type InvalidExcerptsPageProps = { data: InvalidExcerptsResponse };
@@ -139,13 +140,15 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
 
                 const pendingEdit = pendingEdits[getInvalidPendingEditKey(row.filePath, row.id)];
                 if (!pendingEdit) {
-                    return { ...row, patchHighlightRanges: [] };
+                    return { ...row, patchHighlights: [] };
                 }
 
                 return {
                     ...row,
-                    patchHighlightRanges:
-                        pendingEdit.metadata?.highlightRanges ?? getRupturePatchHighlightRanges(pendingEdit.patch),
+                    patchHighlights:
+                        getRuptureHighlightsFromMetadata(pendingEdit.metadata).length > 0
+                            ? getRuptureHighlightsFromMetadata(pendingEdit.metadata)
+                            : getRupturePatchHighlightRanges(pendingEdit.patch).map((range) => ({ range })),
                     translation: pendingEdit.nextTranslation,
                     validationHighlightRanges: [],
                 };
@@ -227,6 +230,7 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
                         leakHints: row.arabicLeakHints,
                         translation: row.translation!,
                     })),
+                    providerId: getStoredAssistProvider() ?? undefined,
                     scope: 'batch',
                     task: 'arabic_leak_correction',
                 },
@@ -431,7 +435,7 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
                                                     }}
                                                     onStartEditing={() => setEditingRowKey(getRowKey(row))}
                                                     onStopEditing={() => setEditingRowKey(null)}
-                                                    patchHighlightRanges={row.patchHighlightRanges}
+                                                    patchHighlights={row.patchHighlights}
                                                     text={row.translation}
                                                     textClassName="whitespace-pre-wrap"
                                                     textareaClassName="block w-full resize-none overflow-hidden rounded border border-input bg-background px-3 py-2 text-[10px] leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"

@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 
+import type { RuptureHighlight } from '@/lib/translation-patches';
 import type { Range } from '@/lib/validation/types';
 
 type HighlightTone = 'amber' | 'destructive';
 
-type TextHighlight = { range: Range; tone: HighlightTone };
+type TextHighlight = { range: Range; title?: string; tone: HighlightTone };
 
 const renderHighlightedText = (text: string, highlights: TextHighlight[]): ReactNode => {
     const activeHighlights = highlights.filter((highlight) => highlight.range.start < highlight.range.end);
@@ -34,6 +35,9 @@ const renderHighlightedText = (text: string, highlights: TextHighlight[]): React
         const activeTone = activeHighlights.find(
             (highlight) => highlight.range.start <= start && highlight.range.end >= end,
         )?.tone;
+        const activeTitle = activeHighlights.find(
+            (highlight) => highlight.range.start <= start && highlight.range.end >= end,
+        )?.title;
 
         if (!activeTone) {
             nodes.push(slice);
@@ -46,7 +50,7 @@ const renderHighlightedText = (text: string, highlights: TextHighlight[]): React
                 : 'rounded-sm bg-amber-200/60 px-0.5 font-semibold text-amber-950 ring-1 ring-amber-400/40 ring-inset';
 
         nodes.push(
-            <span key={`${start}-${end}-${slice}`} className={className}>
+            <span key={`${start}-${end}-${slice}`} className={className} title={activeTitle}>
                 {slice}
             </span>,
         );
@@ -56,14 +60,14 @@ const renderHighlightedText = (text: string, highlights: TextHighlight[]): React
 };
 
 type TranslationTextContentProps = {
-    patchHighlightRanges?: Range[];
+    patchHighlights?: RuptureHighlight[];
     text: string;
     textClassName?: string;
     validationHighlightRanges?: Range[];
 };
 
 export const TranslationTextContent = ({
-    patchHighlightRanges = [],
+    patchHighlights = [],
     text,
     textClassName = 'whitespace-pre-wrap',
     validationHighlightRanges = [],
@@ -72,7 +76,7 @@ export const TranslationTextContent = ({
         <div className={textClassName}>
             {renderHighlightedText(text, [
                 ...validationHighlightRanges.map((range) => ({ range, tone: 'destructive' as const })),
-                ...patchHighlightRanges.map((range) => ({ range, tone: 'amber' as const })),
+                ...patchHighlights.map(({ range, title }) => ({ range, title, tone: 'amber' as const })),
             ])}
         </div>
     );

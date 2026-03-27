@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './app/__root'
+import { Route as SettingsRouteImport } from './app/settings'
 import { Route as PromptsRouteImport } from './app/prompts'
 import { Route as BrowseRouteImport } from './app/_browse'
 import { Route as BrowseIndexRouteImport } from './app/_browse/index'
@@ -31,6 +32,11 @@ import { Route as BrowseTranslationsFileNameIdRouteImport } from './app/_browse/
 import { Route as ApiCompilationExcerptsShiftRouteImport } from './app/api/compilation/excerpts/shift'
 import { Route as ApiCompilationExcerptsPayloadRouteImport } from './app/api/compilation/excerpts/payload'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PromptsRoute = PromptsRouteImport.update({
   id: '/prompts',
   path: '/prompts',
@@ -142,6 +148,7 @@ const ApiCompilationExcerptsPayloadRoute =
 export interface FileRoutesByFullPath {
   '/': typeof BrowseIndexRoute
   '/prompts': typeof PromptsRoute
+  '/settings': typeof SettingsRoute
   '/translations': typeof BrowseTranslationsRouteRouteWithChildren
   '/dashboard': typeof BrowseDashboardRoute
   '/invalid': typeof BrowseInvalidRoute
@@ -163,6 +170,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/prompts': typeof PromptsRoute
+  '/settings': typeof SettingsRoute
   '/dashboard': typeof BrowseDashboardRoute
   '/invalid': typeof BrowseInvalidRoute
   '/api/meta': typeof ApiMetaRoute
@@ -186,6 +194,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_browse': typeof BrowseRouteWithChildren
   '/prompts': typeof PromptsRoute
+  '/settings': typeof SettingsRoute
   '/_browse/translations': typeof BrowseTranslationsRouteRouteWithChildren
   '/_browse/dashboard': typeof BrowseDashboardRoute
   '/_browse/invalid': typeof BrowseInvalidRoute
@@ -211,6 +220,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/prompts'
+    | '/settings'
     | '/translations'
     | '/dashboard'
     | '/invalid'
@@ -232,6 +242,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/prompts'
+    | '/settings'
     | '/dashboard'
     | '/invalid'
     | '/api/meta'
@@ -254,6 +265,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_browse'
     | '/prompts'
+    | '/settings'
     | '/_browse/translations'
     | '/_browse/dashboard'
     | '/_browse/invalid'
@@ -278,6 +290,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   BrowseRoute: typeof BrowseRouteWithChildren
   PromptsRoute: typeof PromptsRoute
+  SettingsRoute: typeof SettingsRoute
   ApiMetaRoute: typeof ApiMetaRoute
   ApiCompilationExcerptsRoute: typeof ApiCompilationExcerptsRouteWithChildren
   ApiCompilationPromptRoute: typeof ApiCompilationPromptRoute
@@ -293,6 +306,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/prompts': {
       id: '/prompts'
       path: '/prompts'
@@ -495,6 +515,7 @@ const ApiCompilationExcerptsRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   BrowseRoute: BrowseRouteWithChildren,
   PromptsRoute: PromptsRoute,
+  SettingsRoute: SettingsRoute,
   ApiMetaRoute: ApiMetaRoute,
   ApiCompilationExcerptsRoute: ApiCompilationExcerptsRouteWithChildren,
   ApiCompilationPromptRoute: ApiCompilationPromptRoute,

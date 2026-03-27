@@ -6,5 +6,6 @@ import type { TranslationAssistRequest, TranslationAssistResponse } from './shel
 export const requestTranslationAssistance = async (
     request: TranslationAssistRequest,
 ): Promise<TranslationAssistResponse> => {
-    return getTranslationAssistProvider().requestAssistance(request);
+    const provider = await getTranslationAssistProvider(request.providerId);
+    return provider.requestAssistance(request);
 };

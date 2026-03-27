@@ -55,6 +55,10 @@ const isValidAssistRequest = (value: unknown): value is TranslationAssistRequest
     const candidate = value as Partial<TranslationAssistRequest>;
 
     return (
+        (typeof candidate.providerId === 'undefined' ||
+            candidate.providerId === 'hf' ||
+            candidate.providerId === 'gemini' ||
+            candidate.providerId === 'cloudflare') &&
         (candidate.scope === 'file' || candidate.scope === 'batch') &&
         candidate.task === 'arabic_leak_correction' &&
         Array.isArray(candidate.excerpts) &&
@@ -77,7 +81,7 @@ const isValidAssistRequest = (value: unknown): value is TranslationAssistRequest
 const validateAssistInput = (value: unknown) => {
     if (!isValidAssistRequest(value)) {
         throw new Error(
-            'Invalid translation assist request. Expected { scope: "file" | "batch", task: "arabic_leak_correction", excerpts: [{ filePath, id, arabic, translation }] }.',
+            'Invalid translation assist request. Expected { providerId?: "hf" | "gemini" | "cloudflare", scope: "file" | "batch", task: "arabic_leak_correction", excerpts: [{ filePath, id, arabic, translation }] }.',
         );
     }
 
@@ -92,6 +96,11 @@ export const fetchBrowseShellData = createServerFn({ method: 'GET' }).handler(as
 export const fetchPromptsPageData = createServerFn({ method: 'GET' }).handler(async () => {
     const { getPromptsPageData } = await import('@/lib/app-services');
     return getPromptsPageData();
+});
+
+export const fetchSettingsPageData = createServerFn({ method: 'GET' }).handler(async () => {
+    const { getSettingsPageData } = await import('@/lib/app-services');
+    return getSettingsPageData();
 });
 
 export const fetchInvalidExcerptsData = createServerFn({ method: 'GET' }).handler(async () => {

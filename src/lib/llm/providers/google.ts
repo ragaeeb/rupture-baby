@@ -3,12 +3,14 @@ import '@tanstack/react-start/server-only';
 import { GoogleGenAI } from '@google/genai';
 import { estimateTokenCount, LLMProvider } from 'bitaboom';
 
+import { buildArabicLeakCorrectionPrompt, parseArabicLeakCorrectionResponse } from '@/lib/llm/arabic-leak-prompt';
 import type { TranslationAssistProvider } from '@/lib/llm/types';
 import type { ArabicLeakCorrection, TranslationAssistRequest } from '@/lib/shell-types';
 
 const MODEL = 'gemini-3.1-flash-lite-preview';
 const DEFAULT_MAX_EXCERPTS_PER_REQUEST = 10;
 const INTER_CHUNK_DELAY_MS = { max: 900, min: 300 } as const;
+export const GEMINI_PROVIDER_ID = 'gemini';
 
 let googleClient: GoogleGenAI | null = null;
 
@@ -39,59 +41,6 @@ const getMaxExcerptsPerRequest = () => {
     return configuredValue;
 };
 
-const buildArabicLeakCorrectionPromptPrefix = () => {
-    return [
-        'You are an expert Arabic to English translator specializing in Islamic content.',
-        '',
-        'I will provide you with a JSON object containing translated passages that contain one or more untranslated Arabic words or phrases that were left in by the original translator. Your task is to identify every Arabic leak in each passage and provide the correct English replacement.',
-        '',
-        'INPUT FORMAT:',
-        '{"excerpts": [{"filePath": "...", "id": "...", "arabic": "...", "translation": "..."}, ...]}',
-        '',
-        'RULES:',
-        '1. Identify ALL Arabic words or phrases remaining in each translation.',
-        '2. Consecutive Arabic words or characters that form a single phrase should be treated as ONE match, including any punctuation attached to them.',
-        '3. If the same Arabic word or phrase appears more than once in the same passage and carries a different meaning each time, expand the "match" field with enough surrounding translated words to make it uniquely identifiable. Only do this when meanings differ.',
-        '4. Use the provided original Arabic source text to determine the correct translation in context.',
-        '5. Preserve the surrounding translated English wording as much as possible. Only change what is necessary to replace the leaked Arabic correctly.',
-        '6. Echo the exact "filePath" and "id" for every correction object.',
-        '7. Your response must be only a raw JSON object. No markdown fences, no preamble, no commentary, nothing else.',
-        '',
-        'OUTPUT FORMAT:',
-        '{"corrections": [{"filePath": "...", "id": "...", "match": "...", "replacement": "..."}]}',
-        '',
-        '- "filePath" must exactly match the input excerpt object.',
-        '- "match" is the exact string to find and replace in the translation.',
-        '- "replacement" is the full replacement string, preserving any surrounding translated words added for uniqueness.',
-        '- If a passage has no Arabic leaks, omit it from the corrections array.',
-        '- Multiple corrections for the same passage are represented as separate objects with the same "id".',
-    ].join('\n');
-};
-
-const isArabicLeakCorrection = (value: unknown): value is ArabicLeakCorrection =>
-    typeof value === 'object' &&
-    value !== null &&
-    'filePath' in value &&
-    'id' in value &&
-    'match' in value &&
-    'replacement' in value &&
-    typeof value.filePath === 'string' &&
-    typeof value.id === 'string' &&
-    typeof value.match === 'string' &&
-    typeof value.replacement === 'string';
-
-const parseCorrectionResponse = (responseText: string): ArabicLeakCorrection[] => {
-    const parsed = JSON.parse(responseText) as { corrections?: unknown };
-    if (!Array.isArray(parsed.corrections) || !parsed.corrections.every(isArabicLeakCorrection)) {
-        throw new Error('Google GenAI returned an invalid Arabic leak correction payload.');
-    }
-
-    return parsed.corrections.filter(
-        (correction) =>
-            correction.id.trim().length > 0 && correction.match.length > 0 && correction.replacement.length > 0,
-    );
-};
-
 const serializeGoogleError = (error: unknown) => {
     if (!(error instanceof Error)) {
         return { raw: error };
@@ -120,11 +69,6 @@ const serializeGoogleError = (error: unknown) => {
 const estimateTokenCounts = (parts: string[]) =>
     parts.reduce((total, part) => total + estimateTokenCount(part, LLMProvider.Gemini), 0);
 
-const buildArabicLeakCorrectionPrompt = (excerpts: TranslationAssistRequest['excerpts']) => {
-    const promptPrefix = buildArabicLeakCorrectionPromptPrefix();
-    return [promptPrefix, '', 'INPUT:', JSON.stringify({ excerpts })].join('\n');
-};
-
 const estimateArabicLeakPromptTokens = (excerpts: TranslationAssistRequest['excerpts']) => {
     return estimateTokenCounts([buildArabicLeakCorrectionPrompt(excerpts)]);
 };
@@ -149,8 +93,10 @@ const getInterChunkDelayMs = () =>
     INTER_CHUNK_DELAY_MS.min + Math.floor(Math.random() * (INTER_CHUNK_DELAY_MS.max - INTER_CHUNK_DELAY_MS.min + 1));
 
 export const getGoogleAssistModel = () => MODEL;
+export const isGoogleAssistConfigured = () => Boolean(process.env.GOOGLE_API_KEY?.trim());
 
 export const googleTranslationAssistProvider: TranslationAssistProvider = {
+    id: GEMINI_PROVIDER_ID,
     model: MODEL,
     requestAssistance: async (request) => {
         const startedAt = performance.now();
@@ -175,6 +121,7 @@ export const googleTranslationAssistProvider: TranslationAssistProvider = {
             const chunk = chunks[chunkIndex];
             const chunkStartedAt = performance.now();
             const chunkEstimatedTokens = estimateArabicLeakPromptTokens(chunk);
+            const excerptById = new Map(chunk.map((excerpt) => [excerpt.id, excerpt] as const));
 
             console.info('[google-genai] assist chunk request', {
                 chunkEstimatedTokens,
@@ -219,7 +166,15 @@ export const googleTranslationAssistProvider: TranslationAssistProvider = {
 
             let chunkCorrections: ArabicLeakCorrection[];
             try {
-                chunkCorrections = parseCorrectionResponse(responseText);
+                chunkCorrections = parseArabicLeakCorrectionResponse(responseText).map((correction) => {
+                    const excerpt = excerptById.get(correction.id);
+                    if (!excerpt) {
+                        throw new Error(
+                            `Google GenAI returned a correction for unknown excerpt id "${correction.id}".`,
+                        );
+                    }
+                    return { ...correction, filePath: excerpt.filePath };
+                });
             } catch (error) {
                 console.error('[google-genai] assist response parse failed', {
                     chunkEstimatedTokens,

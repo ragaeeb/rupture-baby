@@ -13,6 +13,10 @@ const isValidAssistRequest = (value: unknown): value is TranslationAssistRequest
     const candidate = value as Partial<TranslationAssistRequest>;
 
     return (
+        (typeof candidate.providerId === 'undefined' ||
+            candidate.providerId === 'hf' ||
+            candidate.providerId === 'gemini' ||
+            candidate.providerId === 'cloudflare') &&
         (candidate.scope === 'file' || candidate.scope === 'batch') &&
         candidate.task === 'arabic_leak_correction' &&
         Array.isArray(candidate.excerpts) &&
@@ -38,7 +42,7 @@ export const POST = async (request: Request) => {
         if (!isValidAssistRequest(body)) {
             return Response.json(
                 {
-                    error: 'Invalid translation assist request. Expected { scope: "file" | "batch", task: "arabic_leak_correction", excerpts: [{ filePath, id, arabic, translation }] }.',
+                    error: 'Invalid translation assist request. Expected { providerId?: "hf" | "gemini" | "cloudflare", scope: "file" | "batch", task: "arabic_leak_correction", excerpts: [{ filePath, id, arabic, translation }] }.',
                 },
                 { status: 400 },
             );

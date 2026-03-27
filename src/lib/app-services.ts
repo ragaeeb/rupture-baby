@@ -1,5 +1,6 @@
 import '@tanstack/react-start/server-only';
 
+import { getAppSettings } from '@/lib/app-settings';
 import { getPromptOptions, getSelectedPrompt, setSelectedPromptById } from '@/lib/prompt-state';
 import type {
     BrowseShellData,
@@ -8,6 +9,7 @@ import type {
     InvalidExcerptsResponse,
     PromptStateResponse,
     PromptsPageData,
+    SettingsPageData,
     TranslationAssistRequest,
     TranslationAssistResponse,
 } from '@/lib/shell-types';
@@ -78,6 +80,19 @@ export const getPromptsPageData = async (): Promise<PromptsPageData> => {
                 : null,
         meta: metaResult.status === 'fulfilled' ? metaResult.value : null,
         promptState: promptStateResult.status === 'fulfilled' ? promptStateResult.value : null,
+    };
+};
+
+export const getSettingsPageData = async (): Promise<SettingsPageData> => {
+    const [metaResult, settingsResult] = await Promise.allSettled([getAppMeta(), getAppSettings()]);
+
+    return {
+        error:
+            settingsResult.status === 'rejected'
+                ? getErrorMessage(settingsResult.reason, 'Failed to load settings.')
+                : null,
+        meta: metaResult.status === 'fulfilled' ? metaResult.value : null,
+        settings: settingsResult.status === 'fulfilled' ? settingsResult.value : null,
     };
 };
 

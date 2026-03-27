@@ -6,14 +6,16 @@ import type { Range, Segment } from './validation/types';
 export type RupturePatchOp = { end: number; start: number; text: string };
 export type RupturePatch = { ops: RupturePatchOp[] };
 export type RupturePatches = Record<string, RupturePatch>;
+export type RuptureHighlight = { range: Range; title?: string };
 export type RupturePatchMetadata = {
     appliedAt: string;
+    highlights?: RuptureHighlight[];
     highlightRanges?: Range[];
     source: {
         kind: 'llm';
         model: string;
         modelVersion?: string;
-        provider: 'google' | 'huggingface' | 'openrouter';
+        provider: 'cloudflare' | 'google' | 'huggingface' | 'openrouter';
         task: 'arabic_leak_correction';
     };
 };
@@ -46,10 +48,25 @@ export const isRupturePatchMetadata = (value: unknown): value is RupturePatchMet
         return false;
     }
 
+    const highlights = value.highlights;
     const highlightRanges = value.highlightRanges;
 
     return (
         typeof value.appliedAt === 'string' &&
+        (typeof highlights === 'undefined' ||
+            (Array.isArray(highlights) &&
+                highlights.every(
+                    (highlight) =>
+                        isRecord(highlight) &&
+                        isRecord(highlight.range) &&
+                        typeof highlight.range.start === 'number' &&
+                        typeof highlight.range.end === 'number' &&
+                        Number.isInteger(highlight.range.start) &&
+                        Number.isInteger(highlight.range.end) &&
+                        highlight.range.start >= 0 &&
+                        highlight.range.end >= highlight.range.start &&
+                        (typeof highlight.title === 'string' || typeof highlight.title === 'undefined'),
+                ))) &&
         (typeof highlightRanges === 'undefined' ||
             (Array.isArray(highlightRanges) &&
                 highlightRanges.every(
@@ -64,7 +81,8 @@ export const isRupturePatchMetadata = (value: unknown): value is RupturePatchMet
                 ))) &&
         value.source.kind === 'llm' &&
         typeof value.source.model === 'string' &&
-        (value.source.provider === 'google' ||
+        (value.source.provider === 'cloudflare' ||
+            value.source.provider === 'google' ||
             value.source.provider === 'huggingface' ||
             value.source.provider === 'openrouter') &&
         value.source.task === 'arabic_leak_correction' &&
@@ -145,6 +163,18 @@ export const normalizeRupturePatchesForSegments = (
     }
 
     return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+};
+
+export const getRuptureHighlightsFromMetadata = (metadata?: RupturePatchMetadata | null): RuptureHighlight[] => {
+    if (metadata?.highlights && metadata.highlights.length > 0) {
+        return metadata.highlights;
+    }
+
+    if (metadata?.highlightRanges && metadata.highlightRanges.length > 0) {
+        return metadata.highlightRanges.map((range) => ({ range }));
+    }
+
+    return [];
 };
 
 export const getRupturePatchHighlightRanges = (patch: RupturePatch): Range[] => {

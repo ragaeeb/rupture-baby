@@ -418,13 +418,14 @@ const validateTruncatedSegments = (context: ValidationContext): ValidationError[
  * validateArabicLeak('P1 - Muḥammad ﷺ said...').length === 0
  */
 const validateArabicLeak = (context: ValidationContext): ValidationError[] => {
-    const arabicPattern = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDF9\uFDFB-\uFDFF\uFE70-\uFEFF]+/g;
+    const arabicCharacterClass = '[\\u0600-\\u06FF\\u0750-\\u077F\\uFB50-\\uFDF9\\uFDFB-\\uFDFF\\uFE70-\\uFEFF]';
+    const arabicPhrasePattern = new RegExp(`${arabicCharacterClass}+(?:\\s+${arabicCharacterClass}+)*`, 'g');
     const errors: ValidationError[] = [];
 
     for (const marker of context.markers) {
         const text = context.normalizedResponse.slice(marker.translationStart, marker.translationEnd);
         let longestMatch: RegExpMatchArray | undefined;
-        for (const match of text.matchAll(arabicPattern)) {
+        for (const match of text.matchAll(arabicPhrasePattern)) {
             const matchText = match[0].replace(/ﷺ/g, '').trim();
             if (!matchText) {
                 continue;

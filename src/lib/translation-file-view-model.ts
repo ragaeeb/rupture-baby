@@ -5,8 +5,10 @@ import {
     applyRupturePatchesToResponse,
     applyRupturePatchesToSegments,
     createRupturePatch,
+    getRuptureHighlightsFromMetadata,
     getRupturePatchHighlightRanges,
     normalizeRupturePatchesForSegments,
+    type RuptureHighlight,
     type RupturePatch,
     type RupturePatches,
     type RupturePatchMetadata,
@@ -28,7 +30,7 @@ export type TranslationRowData = {
     id: string;
     isDirty: boolean;
     hasPatch: boolean;
-    patchHighlightRanges: Range[];
+    patchHighlights: RuptureHighlight[];
     translatedText: string;
     validationMessages: string[];
 };
@@ -63,7 +65,8 @@ const mergeRupturePatchMetadata = (
                 isRecord(metadata.source) &&
                 metadata.source.kind === 'llm' &&
                 typeof metadata.source.model === 'string' &&
-                (metadata.source.provider === 'google' ||
+                (metadata.source.provider === 'cloudflare' ||
+                    metadata.source.provider === 'google' ||
                     metadata.source.provider === 'huggingface' ||
                     metadata.source.provider === 'openrouter') &&
                 metadata.source.task === 'arabic_leak_correction'
@@ -221,8 +224,13 @@ export const buildTranslationTableModel = (
             highlightRanges: rowErrors.flatMap((error) => (error.segmentRange ? [error.segmentRange] : [])),
             id: segment.id,
             isDirty: segment.id in pendingEdits,
-            patchHighlightRanges:
-                patchMetadata?.highlightRanges ?? (patch ? getRupturePatchHighlightRanges(patch) : []),
+            patchHighlights: (() => {
+                const metadataHighlights = getRuptureHighlightsFromMetadata(patchMetadata);
+                if (metadataHighlights.length > 0) {
+                    return metadataHighlights;
+                }
+                return patch ? getRupturePatchHighlightRanges(patch).map((range) => ({ range })) : [];
+            })(),
             translatedText,
             validationMessages: rowErrors.map((error) => error.message),
         };
@@ -295,7 +303,7 @@ export const applyArabicLeakCorrectionsToPendingEdits = (
             fileCorrections,
             leakHintsById.get(excerptId) ?? [],
         );
-        const { issues: rowIssues, nextText, replacementRanges: rowHighlightRanges, rowChanged } = replacementResult;
+        const { issues: rowIssues, nextText, replacementHighlights: rowHighlights, rowChanged } = replacementResult;
         issues.push(...rowIssues);
 
         if (!rowChanged || nextText === row.translatedText) {
@@ -304,7 +312,7 @@ export const applyArabicLeakCorrectionsToPendingEdits = (
 
         nextEdits = updatePendingEdits(nextEdits, excerptId, row.baseTranslatedText, nextText, {
             ...metadata,
-            highlightRanges: rowHighlightRanges,
+            highlights: rowHighlights,
         });
         updatedRowCount += 1;
     }

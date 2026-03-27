@@ -4,6 +4,7 @@ import { startTransition, useEffect, useState } from 'react';
 import { ConversationView } from '@/components/conversation-view';
 import { DeleteButton } from '@/components/delete-button';
 import { TranslationTableView } from '@/components/translations/translation-table-view';
+import { getStoredAssistProvider } from '@/lib/assist-provider-storage';
 import { parseTranslationRouteSearch, pickBrowseFilters } from '@/lib/browse-search';
 import {
     commitTranslationPatch,
@@ -85,7 +86,12 @@ function TranslationFileContent() {
 
         try {
             const response = await requestArabicLeakCorrections({
-                data: { excerpts: tableModel.arabicLeakExcerpts, scope: 'file', task: 'arabic_leak_correction' },
+                data: {
+                    excerpts: tableModel.arabicLeakExcerpts,
+                    providerId: getStoredAssistProvider() ?? undefined,
+                    scope: 'file',
+                    task: 'arabic_leak_correction',
+                },
             });
             const { issues, nextEdits, updatedRowCount } = applyArabicLeakCorrectionsToPendingEdits(
                 tableModel,

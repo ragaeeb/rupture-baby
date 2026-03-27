@@ -109,7 +109,7 @@ export const applyArabicLeakCorrectionsToInvalidRows = (
         nextEdits[key] = {
             excerptId: row.id,
             filePath: row.filePath,
-            metadata: { ...metadata, highlightRanges: replacementResult.replacementRanges },
+            metadata: { ...metadata, highlights: replacementResult.replacementHighlights },
             nextTranslation: replacementResult.nextText,
             patch,
         };
