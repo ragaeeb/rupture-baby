@@ -10,5 +10,6 @@ export const Route = createFileRoute('/_browse/invalid')({
 
 function InvalidRouteComponent() {
     const data = Route.useLoaderData();
+    console.log('data', data);
     return <InvalidExcerptsPage data={data} />;
 }

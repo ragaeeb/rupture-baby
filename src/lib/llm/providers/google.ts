@@ -2,6 +2,7 @@ import '@tanstack/react-start/server-only';
 
 import { GoogleGenAI } from '@google/genai';
 import { estimateTokenCount, LLMProvider } from 'bitaboom';
+import { ApiKeyManager, LoadBalancingStrategy, redactText } from 'kukamba';
 
 import { buildArabicLeakCorrectionPrompt, parseArabicLeakCorrectionResponse } from '@/lib/llm/arabic-leak-prompt';
 import type { TranslationAssistProvider } from '@/lib/llm/types';
@@ -12,23 +13,44 @@ const DEFAULT_MAX_EXCERPTS_PER_REQUEST = 10;
 const INTER_CHUNK_DELAY_MS = { max: 900, min: 300 } as const;
 export const GEMINI_PROVIDER_ID = 'gemini';
 
-let googleClient: GoogleGenAI | null = null;
+const GOOGLE_KEY_SPLIT_PATTERN = /[\s,]+/;
 
-const requireGoogleApiKey = () => {
-    const apiKey = process.env.GOOGLE_API_KEY?.trim();
-    if (!apiKey) {
-        throw new Error('GOOGLE_API_KEY is not set on the server.');
-    }
-    return apiKey;
+const googleClients = new Map<string, GoogleGenAI>();
+let googleKeyManager: ApiKeyManager | null = null;
+
+const getGoogleApiKeys = () => {
+    return (process.env.GOOGLE_API_KEY ?? '')
+        .split(GOOGLE_KEY_SPLIT_PATTERN)
+        .map((key) => key.trim())
+        .filter(Boolean);
 };
 
-const getGoogleClient = () => {
-    if (googleClient) {
-        return googleClient;
+const requireGoogleApiKeys = () => {
+    const apiKeys = getGoogleApiKeys();
+    if (apiKeys.length === 0) {
+        throw new Error('GOOGLE_API_KEY is not set on the server.');
+    }
+    return apiKeys;
+};
+
+const getGoogleKeyManager = () => {
+    if (googleKeyManager) {
+        return googleKeyManager;
     }
 
-    googleClient = new GoogleGenAI({ apiKey: requireGoogleApiKey() });
-    return googleClient;
+    googleKeyManager = new ApiKeyManager(requireGoogleApiKeys(), LoadBalancingStrategy.WeightedHealth);
+    return googleKeyManager;
+};
+
+const getGoogleClient = (apiKey: string) => {
+    const existingClient = googleClients.get(apiKey);
+    if (existingClient) {
+        return existingClient;
+    }
+
+    const client = new GoogleGenAI({ apiKey });
+    googleClients.set(apiKey, client);
+    return client;
 };
 
 const getMaxExcerptsPerRequest = () => {
@@ -93,7 +115,92 @@ const getInterChunkDelayMs = () =>
     INTER_CHUNK_DELAY_MS.min + Math.floor(Math.random() * (INTER_CHUNK_DELAY_MS.max - INTER_CHUNK_DELAY_MS.min + 1));
 
 export const getGoogleAssistModel = () => MODEL;
-export const isGoogleAssistConfigured = () => Boolean(process.env.GOOGLE_API_KEY?.trim());
+export const isGoogleAssistConfigured = () => getGoogleApiKeys().length > 0;
+
+const isGoogleRateLimitError = (error: unknown) => {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+
+    const candidate = error as Error & { status?: unknown };
+    if (candidate.status === 429) {
+        return true;
+    }
+
+    const message = candidate.message.toLowerCase();
+    return message.includes('429') || message.includes('quota') || message.includes('rate limit');
+};
+
+const generateContentWithRotatingGoogleKey = async (
+    request: Parameters<GoogleGenAI['models']['generateContent']>[0],
+    context: {
+        chunkEstimatedTokens: number;
+        chunkExcerptCount: number;
+        chunkIndex: number;
+        chunkTotal: number;
+        excerptCount: number;
+        requestScope: TranslationAssistRequest['scope'];
+        requestTask: TranslationAssistRequest['task'];
+        startedAt: number;
+    },
+) => {
+    const keyManager = getGoogleKeyManager();
+    const maxAttempts = Math.max(1, keyManager.getCount());
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        let apiKey: string;
+        try {
+            apiKey = keyManager.getNext();
+        } catch (error) {
+            console.error('[google-genai] no healthy api keys available', {
+                attemptsTried: attempt - 1,
+                chunkEstimatedTokens: context.chunkEstimatedTokens,
+                chunkExcerptCount: context.chunkExcerptCount,
+                chunkIndex: context.chunkIndex,
+                chunkTotal: context.chunkTotal,
+                durationMs: Math.round(performance.now() - context.startedAt),
+                error: serializeGoogleError(error),
+                excerptCount: context.excerptCount,
+                keyCount: keyManager.getCount(),
+                model: MODEL,
+                scope: context.requestScope,
+                task: context.requestTask,
+            });
+            throw error;
+        }
+
+        keyManager.markRequestStart(apiKey);
+        try {
+            const response = await getGoogleClient(apiKey).models.generateContent(request);
+            keyManager.recordSuccess(apiKey);
+
+            console.info('[google-genai] assist key success', {
+                apiKey: redactText(apiKey),
+                attempt,
+                chunkIndex: context.chunkIndex,
+                chunkTotal: context.chunkTotal,
+                model: MODEL,
+            });
+
+            return response;
+        } catch (error) {
+            keyManager.recordFailure(apiKey, isGoogleRateLimitError(error));
+            lastError = error;
+
+            console.warn('[google-genai] assist key failed', {
+                apiKey: redactText(apiKey),
+                attempt,
+                chunkIndex: context.chunkIndex,
+                chunkTotal: context.chunkTotal,
+                error: serializeGoogleError(error),
+                model: MODEL,
+            });
+        }
+    }
+
+    throw lastError ?? new Error('Google GenAI request failed without an error.');
+};
 
 export const googleTranslationAssistProvider: TranslationAssistProvider = {
     id: GEMINI_PROVIDER_ID,
@@ -133,16 +240,28 @@ export const googleTranslationAssistProvider: TranslationAssistProvider = {
 
             let response: Awaited<ReturnType<GoogleGenAI['models']['generateContent']>>;
             try {
-                response = await getGoogleClient().models.generateContent({
-                    config: {
-                        responseMimeType: 'application/json',
-                        systemInstruction:
-                            'You are a precise Arabic-to-English Islamic translation QA assistant. Return valid JSON only.',
-                        temperature: 0,
+                response = await generateContentWithRotatingGoogleKey(
+                    {
+                        config: {
+                            responseMimeType: 'application/json',
+                            systemInstruction:
+                                'You are a precise Arabic-to-English Islamic translation QA assistant. Return valid JSON only.',
+                            temperature: 0,
+                        },
+                        contents: buildArabicLeakCorrectionPrompt(chunk),
+                        model: MODEL,
                     },
-                    contents: buildArabicLeakCorrectionPrompt(chunk),
-                    model: MODEL,
-                });
+                    {
+                        chunkEstimatedTokens,
+                        chunkExcerptCount: chunk.length,
+                        chunkIndex: chunkIndex + 1,
+                        chunkTotal: chunks.length,
+                        excerptCount,
+                        requestScope: request.scope,
+                        requestTask: request.task,
+                        startedAt,
+                    },
+                );
             } catch (error) {
                 console.error('[google-genai] assist request failed', {
                     chunkEstimatedTokens,
@@ -163,6 +282,8 @@ export const googleTranslationAssistProvider: TranslationAssistProvider = {
             if (!responseText) {
                 throw new Error('Google GenAI returned an empty response.');
             }
+
+            console.log('responseText', responseText);
 
             let chunkCorrections: ArabicLeakCorrection[];
             try {

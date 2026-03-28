@@ -100,8 +100,15 @@ export const applyArabicLeakCorrectionsToText = (
     const replacementHighlights: RuptureHighlight[] = [];
     const replacementRanges: Range[] = [];
     const issues: string[] = [];
+    const seenCorrections = new Set<string>();
 
     for (const correction of corrections) {
+        const correctionKey = `${correction.match}\u0000${correction.replacement}`;
+        if (seenCorrections.has(correctionKey)) {
+            continue;
+        }
+        seenCorrections.add(correctionKey);
+
         if (!containsArabicScript(correction.match)) {
             issues.push(`Skipping non-Arabic correction "${correction.match}" in excerpt ${excerptId}.`);
             continue;

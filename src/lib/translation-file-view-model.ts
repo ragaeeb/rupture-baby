@@ -5,8 +5,7 @@ import {
     applyRupturePatchesToResponse,
     applyRupturePatchesToSegments,
     createRupturePatch,
-    getRuptureHighlightsFromMetadata,
-    getRupturePatchHighlightRanges,
+    getRuptureDisplayHighlights,
     normalizeRupturePatchesForSegments,
     type RuptureHighlight,
     type RupturePatch,
@@ -224,13 +223,7 @@ export const buildTranslationTableModel = (
             highlightRanges: rowErrors.flatMap((error) => (error.segmentRange ? [error.segmentRange] : [])),
             id: segment.id,
             isDirty: segment.id in pendingEdits,
-            patchHighlights: (() => {
-                const metadataHighlights = getRuptureHighlightsFromMetadata(patchMetadata);
-                if (metadataHighlights.length > 0) {
-                    return metadataHighlights;
-                }
-                return patch ? getRupturePatchHighlightRanges(patch).map((range) => ({ range })) : [];
-            })(),
+            patchHighlights: getRuptureDisplayHighlights(translatedText, patch, patchMetadata),
             translatedText,
             validationMessages: rowErrors.map((error) => error.message),
         };

@@ -7,8 +7,50 @@ import type { DashboardStatsResponse } from '@/lib/shell-types';
 
 type DashboardPageProps = { stats: DashboardStatsResponse | null; statsError: string | null };
 
+const formatCheckedAt = (checkedAt: string | undefined) => {
+    if (!checkedAt) {
+        return '...';
+    }
+
+    return checkedAt.replace('T', ' ').replace('Z', ' UTC');
+};
+
+const getConfiguredPathStatus = ({
+    configured,
+    exists,
+    path,
+}: {
+    configured: boolean;
+    exists: boolean;
+    path: string | null;
+}) => {
+    if (!configured) {
+        return 'Not configured';
+    }
+
+    if (exists) {
+        return path;
+    }
+
+    return `${path ?? 'Configured path'} (missing)`;
+};
+
 const DashboardPage = ({ stats, statsError }: DashboardPageProps) => {
     const translationStats = stats?.translationStats;
+    const compilationFileStatus = stats
+        ? getConfiguredPathStatus({
+              configured: stats.health.compilationFileConfigured,
+              exists: stats.health.compilationFileExists,
+              path: stats.health.compilationFilePath,
+          })
+        : null;
+    const translationsDirectoryStatus = stats
+        ? getConfiguredPathStatus({
+              configured: stats.health.translationsDirectoryConfigured,
+              exists: stats.health.translationsDirectoryExists,
+              path: stats.health.translationsDirectoryPath,
+          })
+        : null;
 
     return (
         <>
@@ -36,24 +78,18 @@ const DashboardPage = ({ stats, statsError }: DashboardPageProps) => {
                                 {stats?.health.ok ? 'OK' : 'Degraded'}
                             </span>
                         </p>
-                        <p className="mt-2 text-sm">
-                            Compilation file:{' '}
-                            {stats?.health.compilationFileConfigured
-                                ? stats.health.compilationFileExists
-                                    ? 'Available'
-                                    : 'Missing'
-                                : 'Not configured'}
-                        </p>
-                        <p className="mt-2 text-sm">
-                            Translations directory:{' '}
-                            {stats?.health.translationsDirectoryConfigured
-                                ? stats.health.translationsDirectoryExists
-                                    ? 'Available'
-                                    : 'Missing'
-                                : 'Not configured'}
-                        </p>
+                        <div className="mt-2 text-sm">
+                            <p>Compilation file:</p>
+                            <p className="mt-1 break-all text-muted-foreground">{compilationFileStatus ?? '...'}</p>
+                        </div>
+                        <div className="mt-2 text-sm">
+                            <p>Translations directory:</p>
+                            <p className="mt-1 break-all text-muted-foreground">
+                                {translationsDirectoryStatus ?? '...'}
+                            </p>
+                        </div>
                         <p className="mt-2 text-muted-foreground text-xs">
-                            Checked at {stats?.checkedAt ? new Date(stats.checkedAt).toLocaleString() : '...'}
+                            Checked at {formatCheckedAt(stats?.checkedAt)}
                         </p>
                     </div>
 

@@ -6,7 +6,7 @@ import { createFileRoute } from '@tanstack/react-router';
 
 import { MissingPathConfigError, requireTranslationsDir } from '@/lib/data-paths';
 import { readTextFile } from '@/lib/runtime-files';
-import { mapConversationToExcerpts, parseTranslationToCommon } from '@/lib/translation-parser';
+import { analyzeTranslationValidity, isTranslationValidityAnalysisInvalid } from '@/lib/translation-validity';
 
 const collectJsonFiles = async (dir: string, relativePath = ''): Promise<string[]> => {
     const files: string[] = [];
@@ -30,9 +30,8 @@ const validateFile = async (translationsDir: string, filePath: string): Promise<
     try {
         const fullPath = path.join(translationsDir, filePath);
         const content = await readTextFile(fullPath);
-        const parsed = parseTranslationToCommon(JSON.parse(content));
-        const excerpts = mapConversationToExcerpts(parsed);
-        return excerpts.length === 0;
+        const analysis = analyzeTranslationValidity(content);
+        return isTranslationValidityAnalysisInvalid(analysis);
     } catch {
         return true;
     }

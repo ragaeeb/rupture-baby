@@ -1,6 +1,10 @@
 import '@tanstack/react-start/server-only';
 
-import { buildArabicLeakCorrectionPrompt, parseArabicLeakCorrectionResponse } from '@/lib/llm/arabic-leak-prompt';
+import {
+    buildArabicLeakCorrectionJsonSchema,
+    buildArabicLeakCorrectionPrompt,
+    parseArabicLeakCorrectionResponse,
+} from '@/lib/llm/arabic-leak-prompt';
 import type { TranslationAssistProvider } from '@/lib/llm/types';
 import type { ArabicLeakCorrection, TranslationAssistRequest } from '@/lib/shell-types';
 
@@ -55,6 +59,14 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getInterBatchDelayMs = () =>
     INTER_BATCH_DELAY_MS.min + Math.floor(Math.random() * (INTER_BATCH_DELAY_MS.max - INTER_BATCH_DELAY_MS.min + 1));
+
+const getMissingExcerpts = (
+    requestedExcerpts: TranslationAssistRequest['excerpts'],
+    corrections: ArabicLeakCorrection[],
+) => {
+    const correctedIds = new Set(corrections.map((correction) => correction.id));
+    return requestedExcerpts.filter((excerpt) => !correctedIds.has(excerpt.id));
+};
 
 const getResponsePreview = (rawText: string, maxLength = 1500) =>
     rawText.length <= maxLength
@@ -148,12 +160,14 @@ const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts
         translation,
     }));
     const prompt = buildArabicLeakCorrectionPrompt(chunk);
+    const responseSchema = buildArabicLeakCorrectionJsonSchema(chunk);
 
     console.info('[cloudflare] outbound request payload', {
         excerptCount: chunk.length,
         excerptsPreview: getStructuredPreview(outboundExcerpts),
         model: MODEL,
         promptPreview: getResponsePreview(prompt, 4000),
+        responseSchemaPreview: getStructuredPreview(responseSchema, 4000),
     });
 
     const response = await fetch(getCloudflareRunUrl(), {
@@ -166,6 +180,10 @@ const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts
                 },
                 { content: prompt, role: 'user' },
             ],
+            response_format: {
+                json_schema: { name: 'arabic_leak_corrections', schema: responseSchema },
+                type: 'json_schema',
+            },
             temperature: 0,
         }),
         headers: { Authorization: `Bearer ${requireCloudflareToken()}`, 'Content-Type': 'application/json' },
@@ -264,10 +282,40 @@ export const cloudflareTranslationAssistProvider: TranslationAssistProvider = {
 
             try {
                 const chunkCorrections = await requestChunkCorrections(chunk);
-                corrections.push(...chunkCorrections);
+                const mergedChunkCorrections = [...chunkCorrections];
+                const missingExcerpts = getMissingExcerpts(chunk, chunkCorrections);
+
+                if (missingExcerpts.length > 0 && chunk.length > 1) {
+                    console.warn('[cloudflare] assist chunk partial response', {
+                        chunkExcerptCount: chunk.length,
+                        chunkIndex: chunkIndex + 1,
+                        chunkTotal: chunks.length,
+                        missingExcerptIds: missingExcerpts.map((excerpt) => excerpt.id),
+                        model: MODEL,
+                        returnedCorrectionCount: chunkCorrections.length,
+                    });
+
+                    for (let missingIndex = 0; missingIndex < missingExcerpts.length; missingIndex += 1) {
+                        const missingExcerpt = missingExcerpts[missingIndex];
+                        const retryCorrections = await requestChunkCorrections([missingExcerpt]);
+                        mergedChunkCorrections.push(...retryCorrections);
+
+                        console.info('[cloudflare] assist single-excerpt retry response', {
+                            excerptId: missingExcerpt.id,
+                            model: MODEL,
+                            retryCorrectionCount: retryCorrections.length,
+                        });
+
+                        if (missingIndex < missingExcerpts.length - 1) {
+                            await sleep(getInterBatchDelayMs());
+                        }
+                    }
+                }
+
+                corrections.push(...mergedChunkCorrections);
 
                 console.info('[cloudflare] assist chunk response', {
-                    chunkCorrectionCount: chunkCorrections.length,
+                    chunkCorrectionCount: mergedChunkCorrections.length,
                     chunkDurationMs: Math.round(performance.now() - chunkStartedAt),
                     chunkIndex: chunkIndex + 1,
                     chunkTotal: chunks.length,

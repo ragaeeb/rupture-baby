@@ -1,6 +1,6 @@
 'use client';
 
-import { Link } from '@tanstack/react-router';
+import { Link, useRouter } from '@tanstack/react-router';
 import { Wrench } from 'lucide-react';
 import { startTransition, useMemo, useState } from 'react';
 
@@ -11,6 +11,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 import { getStoredAssistProvider } from '@/lib/assist-provider-storage';
 import {
     applyArabicLeakCorrectionsToInvalidRows,
+    commitInvalidPendingEdits,
     getInvalidPendingEditKey,
     type InvalidPendingEditMap,
     updateInvalidPendingEdits,
@@ -18,7 +19,7 @@ import {
 import { commitTranslationPatch, requestArabicLeakCorrections } from '@/lib/server-functions';
 import type { InvalidExcerptsResponse } from '@/lib/shell-types';
 import { getCommitButtonLabel } from '@/lib/translation-file-view-model';
-import { getRuptureHighlightsFromMetadata, getRupturePatchHighlightRanges } from '@/lib/translation-patches';
+import { getRuptureDisplayHighlights } from '@/lib/translation-patches';
 import { VALIDATION_ERROR_TYPE_INFO } from '@/lib/validation/utils';
 
 type InvalidExcerptsPageProps = { data: InvalidExcerptsResponse };
@@ -114,6 +115,7 @@ const getNextSelectedRowKeys = ({
 };
 
 const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
+    const router = useRouter();
     const [selectedErrorType, setSelectedErrorType] = useState('all');
     const [assistError, setAssistError] = useState<string | null>(null);
     const [isFixingErrors, setIsFixingErrors] = useState(false);
@@ -145,10 +147,11 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
 
                 return {
                     ...row,
-                    patchHighlights:
-                        getRuptureHighlightsFromMetadata(pendingEdit.metadata).length > 0
-                            ? getRuptureHighlightsFromMetadata(pendingEdit.metadata)
-                            : getRupturePatchHighlightRanges(pendingEdit.patch).map((range) => ({ range })),
+                    patchHighlights: getRuptureDisplayHighlights(
+                        pendingEdit.nextTranslation,
+                        pendingEdit.patch,
+                        pendingEdit.metadata,
+                    ),
                     translation: pendingEdit.nextTranslation,
                     validationHighlightRanges: [],
                 };
@@ -266,20 +269,19 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
 
         setIsCommitting(true);
         try {
-            const committedRowKeys = Object.values(pendingEdits).map((pendingEdit) =>
-                getInvalidPendingEditKey(pendingEdit.filePath, pendingEdit.excerptId),
-            );
-
-            for (const pendingEdit of Object.values(pendingEdits)) {
-                await commitTranslationPatch({
-                    data: {
-                        excerptId: pendingEdit.excerptId,
-                        patch: pendingEdit.patch,
-                        patchMetadata: pendingEdit.metadata,
-                        relativePath: pendingEdit.filePath,
-                    },
-                });
-            }
+            const committedRowKeys = await commitInvalidPendingEdits({
+                commitPatch: (pendingEdit) =>
+                    commitTranslationPatch({
+                        data: {
+                            excerptId: pendingEdit.excerptId,
+                            patch: pendingEdit.patch,
+                            patchMetadata: pendingEdit.metadata,
+                            relativePath: pendingEdit.filePath,
+                        },
+                    }),
+                invalidate: () => router.invalidate({ sync: true }),
+                pendingEdits,
+            });
 
             startTransition(() => {
                 setPendingEdits({});
@@ -397,11 +399,13 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
                                                         (!selectedRowKeys.includes(getRowKey(row)) &&
                                                             selectedRowKeys.length >= MAX_FIX_SELECTION_SIZE)
                                                     }
-                                                    onClick={(event) =>
+                                                    onChange={(event) =>
                                                         handleToggleRowSelection(
                                                             getRowKey(row),
                                                             event.currentTarget.checked,
-                                                            event.shiftKey,
+                                                            event.nativeEvent instanceof MouseEvent
+                                                                ? event.nativeEvent.shiftKey
+                                                                : false,
                                                         )
                                                     }
                                                     type="checkbox"

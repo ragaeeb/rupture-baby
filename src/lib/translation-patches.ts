@@ -177,6 +177,16 @@ export const getRuptureHighlightsFromMetadata = (metadata?: RupturePatchMetadata
     return [];
 };
 
+export const stripRuptureHighlightMetadata = (
+    metadata?: RupturePatchMetadata | null,
+): RupturePatchMetadata | undefined => {
+    if (!metadata) {
+        return undefined;
+    }
+
+    return { appliedAt: metadata.appliedAt, source: { ...metadata.source } };
+};
+
 export const getRupturePatchHighlightRanges = (patch: RupturePatch): Range[] => {
     const normalizedPatch = normalizeRupturePatch(patch);
     if (!normalizedPatch) {
@@ -198,6 +208,78 @@ export const getRupturePatchHighlightRanges = (patch: RupturePatch): Range[] => 
     }
 
     return ranges;
+};
+
+export const mergeRuptureHighlightsForDisplay = (text: string, highlights: RuptureHighlight[]): RuptureHighlight[] => {
+    if (highlights.length <= 1) {
+        return highlights;
+    }
+
+    const sortedHighlights = highlights
+        .filter((highlight) => highlight.range.start < highlight.range.end)
+        .toSorted((left, right) => left.range.start - right.range.start || left.range.end - right.range.end);
+
+    if (sortedHighlights.length <= 1) {
+        return sortedHighlights;
+    }
+
+    const mergedHighlights: RuptureHighlight[] = [];
+    let currentHighlight = sortedHighlights[0];
+
+    for (let index = 1; index < sortedHighlights.length; index += 1) {
+        const nextHighlight = sortedHighlights[index];
+        if (!currentHighlight || !nextHighlight) {
+            continue;
+        }
+
+        const gapText =
+            nextHighlight.range.start > currentHighlight.range.end
+                ? text.slice(currentHighlight.range.end, nextHighlight.range.start)
+                : '';
+        const shouldMerge =
+            !currentHighlight.title &&
+            !nextHighlight.title &&
+            (nextHighlight.range.start <= currentHighlight.range.end || /^[ \t]+$/.test(gapText));
+
+        if (shouldMerge) {
+            currentHighlight = {
+                range: {
+                    end: Math.max(currentHighlight.range.end, nextHighlight.range.end),
+                    start: currentHighlight.range.start,
+                },
+            };
+            continue;
+        }
+
+        mergedHighlights.push(currentHighlight);
+        currentHighlight = nextHighlight;
+    }
+
+    if (currentHighlight) {
+        mergedHighlights.push(currentHighlight);
+    }
+
+    return mergedHighlights;
+};
+
+export const getRuptureDisplayHighlights = (
+    text: string,
+    patch?: RupturePatch | null,
+    metadata?: RupturePatchMetadata | null,
+): RuptureHighlight[] => {
+    const metadataHighlights = getRuptureHighlightsFromMetadata(metadata);
+    if (metadataHighlights.length > 0) {
+        return metadataHighlights;
+    }
+
+    if (!patch) {
+        return [];
+    }
+
+    return mergeRuptureHighlightsForDisplay(
+        text,
+        getRupturePatchHighlightRanges(patch).map((range) => ({ range })),
+    );
 };
 
 export const applyRupturePatchesToSegments = (segments: Segment[], patches?: RupturePatches | null) => {

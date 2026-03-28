@@ -1,6 +1,6 @@
 import { applyArabicLeakCorrectionsToText } from './arabic-leak-corrections';
 import type { InvalidExcerptRow } from './shell-types';
-import { createRupturePatch, type RupturePatchMetadata } from './translation-patches';
+import { createRupturePatch, type RupturePatchMetadata, stripRuptureHighlightMetadata } from './translation-patches';
 
 export type InvalidPendingEdit = {
     excerptId: string;
@@ -42,11 +42,32 @@ export const updateInvalidPendingEdits = (
         [key]: {
             excerptId: row.id,
             filePath: row.filePath,
-            metadata: existingEdit?.metadata,
+            metadata: stripRuptureHighlightMetadata(existingEdit?.metadata),
             nextTranslation: nextText,
             patch,
         },
     };
+};
+
+export const commitInvalidPendingEdits = async ({
+    commitPatch,
+    invalidate,
+    pendingEdits,
+}: {
+    commitPatch: (pendingEdit: InvalidPendingEdit) => Promise<unknown>;
+    invalidate: () => Promise<void>;
+    pendingEdits: InvalidPendingEditMap;
+}) => {
+    const committedRowKeys = Object.values(pendingEdits).map((pendingEdit) =>
+        getInvalidPendingEditKey(pendingEdit.filePath, pendingEdit.excerptId),
+    );
+
+    for (const pendingEdit of Object.values(pendingEdits)) {
+        await commitPatch(pendingEdit);
+    }
+
+    await invalidate();
+    return committedRowKeys;
 };
 
 export const applyArabicLeakCorrectionsToInvalidRows = (

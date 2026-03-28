@@ -7,18 +7,18 @@ import path from 'node:path';
 import { MissingPathConfigError, requireCompilationFilePath, requireTranslationsDir } from '@/lib/data-paths';
 import { fileExists, getFileSizeBytes, readTextFile, writeTextFile } from '@/lib/runtime-files';
 import type { InvalidExcerptRow, InvalidExcerptsResponse, JsonValue, TranslationFileResponse } from '@/lib/shell-types';
+import { parseTranslationToCommon } from './translation-parser';
 import {
-    mapConversationToExcerpts,
-    parseTranslationToCommon,
-    validateConversationExcerpts,
-} from './translation-parser';
-import {
-    applyRupturePatchesToSegments,
     isRupturePatchMetadata,
     normalizeRupturePatchesForSegments,
     type RupturePatch,
     type RupturePatchMetadata,
 } from './translation-patches';
+import {
+    analyzeTranslationValidity,
+    getVisibleTranslationValidityErrors,
+    isTranslationValidityAnalysisInvalid,
+} from './translation-validity';
 import { parseTranslationsInOrder } from './validation/textUtils';
 import type { Range, ValidationErrorType } from './validation/types';
 
@@ -317,8 +317,10 @@ export const getDashboardStats = async () => {
     let translationsDirectoryExists = true;
     let translationFilesCount = 0;
     let translationsDirectoryName = 'translations';
+    let translationsDirectoryPath: string | null = null;
 
     try {
+        translationsDirectoryPath = requireTranslationsDir();
         const translationTree = await getTranslationTree();
         translationFilesCount = countFiles(translationTree.entries);
         translationsDirectoryName = translationTree.rootName;
@@ -326,6 +328,7 @@ export const getDashboardStats = async () => {
         if (error instanceof MissingPathConfigError) {
             translationsDirectoryConfigured = false;
             translationsDirectoryExists = false;
+            translationsDirectoryPath = null;
         } else {
             translationsDirectoryExists = false;
         }
@@ -333,14 +336,16 @@ export const getDashboardStats = async () => {
 
     let compilationFileConfigured = true;
     let compilationFileExists = true;
+    let compilationFilePath: string | null = null;
 
     try {
-        const compilationFilePath = requireCompilationFilePath();
+        compilationFilePath = requireCompilationFilePath();
         await stat(compilationFilePath);
     } catch (error) {
         if (error instanceof MissingPathConfigError) {
             compilationFileConfigured = false;
             compilationFileExists = false;
+            compilationFilePath = null;
         } else {
             compilationFileExists = false;
         }
@@ -351,6 +356,7 @@ export const getDashboardStats = async () => {
         health: {
             compilationFileConfigured,
             compilationFileExists,
+            compilationFilePath,
             ok:
                 compilationFileConfigured &&
                 compilationFileExists &&
@@ -358,6 +364,7 @@ export const getDashboardStats = async () => {
                 translationsDirectoryExists,
             translationsDirectoryConfigured,
             translationsDirectoryExists,
+            translationsDirectoryPath,
         },
         stats: { port: process.env.PORT?.trim() || '9000', translationFilesCount, translationsDirectoryName },
     };
@@ -404,10 +411,9 @@ export const getTranslationStats = async (): Promise<TranslationStats> => {
         try {
             const fullPath = path.join(translationsDir, filePath);
             const content = await readTextFile(fullPath);
-            const parsed = parseTranslationToCommon(JSON.parse(content));
-            const excerpts = mapConversationToExcerpts(parsed);
-            const isValid = excerpts.length > 0;
-            const model = parsed.model;
+            const analysis = analyzeTranslationValidity(content);
+            const isValid = !isTranslationValidityAnalysisInvalid(analysis);
+            const model = analysis.model;
 
             files.push({ isValid, model, path: filePath });
 
@@ -427,33 +433,29 @@ export const getTranslationStats = async (): Promise<TranslationStats> => {
 
     const validFiles = files.filter((f) => f.isValid).length;
     const invalidFiles = files.filter((f) => !f.isValid).length;
+    console.log(
+        'invalidFiles',
+        files.filter((f) => !f.isValid),
+    );
 
     return { files, invalidByModel, invalidFiles, modelBreakdown, totalFiles: filePaths.length, validFiles };
 };
 
 const buildInvalidExcerptRowsForFile = (filePath: string, content: string): InvalidExcerptRow[] => {
-    const parsed = parseTranslationToCommon(JSON.parse(content));
-    const baseTranslatedSegments = parseTranslationsInOrder(parsed.response);
-    const savedPatches = normalizeRupturePatchesForSegments(baseTranslatedSegments, parsed.__rupture?.patches);
-    const patchedExcerptIds = new Set(Object.keys(savedPatches ?? {}));
-    const translatedSegments = applyRupturePatchesToSegments(baseTranslatedSegments, savedPatches);
-    const patchedResponse = translatedSegments.map((segment) => `${segment.id} - ${segment.text}`).join('\n\n');
-    const validation = validateConversationExcerpts({ ...parsed, response: patchedResponse });
+    const analysis = analyzeTranslationValidity(content);
+    const { baseTranslatedById, model, translatedById, validation } = analysis;
+    const visibleValidationErrors = getVisibleTranslationValidityErrors(analysis);
 
-    if (validation.validationErrors.length === 0) {
-        mapConversationToExcerpts({ ...parsed, response: patchedResponse });
+    if (visibleValidationErrors.length === 0) {
         return [];
     }
-
-    const translatedById = new Map(translatedSegments.map((segment) => [segment.id, segment.text] as const));
-    const baseTranslatedById = new Map(baseTranslatedSegments.map((segment) => [segment.id, segment.text] as const));
     const errorsById = new Map<
         string,
         { leakHints: string[]; messages: string[]; types: ValidationErrorType[]; validationHighlightRanges: Range[] }
     >();
     const globalErrorBucket: { messages: string[]; types: ValidationErrorType[] } = { messages: [], types: [] };
 
-    for (const error of validation.validationErrors) {
+    for (const error of visibleValidationErrors) {
         if (error.id) {
             const existing = errorsById.get(error.id) ?? {
                 leakHints: [],
@@ -477,10 +479,6 @@ const buildInvalidExcerptRowsForFile = (filePath: string, content: string): Inva
     }
 
     const excerptRows: InvalidExcerptRow[] = validation.arabicSegments.flatMap((segment) => {
-        if (patchedExcerptIds.has(segment.id)) {
-            return [];
-        }
-
         const errorBucket = errorsById.get(segment.id);
         if (!errorBucket || errorBucket.messages.length === 0) {
             return [];
@@ -495,7 +493,7 @@ const buildInvalidExcerptRowsForFile = (filePath: string, content: string): Inva
                 filePath,
                 id: segment.id,
                 messages: errorBucket.messages,
-                model: parsed.model,
+                model,
                 patchHighlights: [],
                 translation: translatedById.get(segment.id) ?? null,
                 validationHighlightRanges: errorBucket.validationHighlightRanges,
@@ -517,7 +515,7 @@ const buildInvalidExcerptRowsForFile = (filePath: string, content: string): Inva
             filePath,
             id: null,
             messages: globalErrorBucket.messages,
-            model: parsed.model,
+            model,
             patchHighlights: [],
             translation: null,
             validationHighlightRanges: [],

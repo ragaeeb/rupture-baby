@@ -23,9 +23,11 @@ export type TranslationFileResponse = {
 export type DashboardStatsResponse = {
     checkedAt: string;
     health: {
+        compilationFilePath: string | null;
         compilationFileConfigured: boolean;
         compilationFileExists: boolean;
         ok: boolean;
+        translationsDirectoryPath: string | null;
         translationsDirectoryConfigured: boolean;
         translationsDirectoryExists: boolean;
     };
