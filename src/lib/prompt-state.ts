@@ -5,9 +5,8 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { parser } from 'stream-json';
 import pick from 'stream-json/filters/pick.js';
 import streamValues from 'stream-json/streamers/stream-values.js';
-
-import type { Compilation } from '@/lib/compilation';
 import { requireCompilationFilePath } from '@/lib/data-paths';
+import type { Compilation } from '@/types/compilation';
 
 const PROMPTS_DIR = 'prompts';
 

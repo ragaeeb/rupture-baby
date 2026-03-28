@@ -22,6 +22,17 @@ export type TranslationFileResponse = {
 
 export type DashboardStatsResponse = {
     checkedAt: string;
+    compilationStats?: {
+        createdAt: number | null;
+        excerpts: { total: number; translated: number; untranslated: number };
+        headings: { total: number; translated: number; untranslated: number };
+        lastUpdatedAt: number | null;
+        totalSegments: number;
+        translatedSegments: number;
+        untranslatedSegments: number;
+        uniqueTranslators: number;
+        workDurationMs: number | null;
+    } | null;
     health: {
         compilationFilePath: string | null;
         compilationFileConfigured: boolean;
@@ -34,6 +45,28 @@ export type DashboardStatsResponse = {
     stats: { port: string; translationFilesCount: number; translationsDirectoryName: string };
     translationStats?: TranslationStats;
 };
+
+export type CompilationPlaybackSimulationResponse = {
+    appliedExcerptCount: number;
+    blockedByCompilationDuplicates: boolean;
+    compilationFilePath: string;
+    compilationDuplicateTargetIds: Array<{
+        id: string;
+        targets: Array<{ collection: 'excerpts' | 'footnotes' | 'headings'; index: number }>;
+    }>;
+    compilationStatsAfter: NonNullable<DashboardStatsResponse['compilationStats']>;
+    compilationStatsBefore: NonNullable<DashboardStatsResponse['compilationStats']>;
+    duplicateExcerptIds: Array<{ filePaths: string[]; id: string }>;
+    invalidFileCount: number;
+    invalidFilePaths: string[];
+    skippedAlreadyTranslatedExcerptIds: Array<{ filePaths: string[]; id: string }>;
+    totalCandidateExcerptCount: number;
+    unknownCompilationExcerptIds: Array<{ filePaths: string[]; id: string }>;
+    validFileCount: number;
+    validFilePaths: string[];
+};
+
+export type SaveCompilationPlaybackResponse = { appliedExcerptCount: number; outputPath: string };
 
 export type InvalidExcerptRow = {
     arabic: string | null;
@@ -56,6 +89,7 @@ export type TranslationStats = {
     invalidByModel: Record<string, number>;
     invalidFiles: number;
     modelBreakdown: Record<string, number>;
+    patchesApplied: number;
     totalFiles: number;
     validFiles: number;
 };

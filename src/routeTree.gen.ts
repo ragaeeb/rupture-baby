@@ -14,6 +14,7 @@ import { Route as PromptsRouteImport } from './app/prompts'
 import { Route as BrowseRouteImport } from './app/_browse'
 import { Route as BrowseIndexRouteImport } from './app/_browse/index'
 import { Route as ApiMetaRouteImport } from './app/api/meta'
+import { Route as BrowseValidRouteImport } from './app/_browse/valid'
 import { Route as BrowseInvalidRouteImport } from './app/_browse/invalid'
 import { Route as BrowseDashboardRouteImport } from './app/_browse/dashboard'
 import { Route as BrowseTranslationsRouteRouteImport } from './app/_browse/translations/route'
@@ -55,6 +56,11 @@ const ApiMetaRoute = ApiMetaRouteImport.update({
   id: '/api/meta',
   path: '/api/meta',
   getParentRoute: () => rootRouteImport,
+} as any)
+const BrowseValidRoute = BrowseValidRouteImport.update({
+  id: '/valid',
+  path: '/valid',
+  getParentRoute: () => BrowseRoute,
 } as any)
 const BrowseInvalidRoute = BrowseInvalidRouteImport.update({
   id: '/invalid',
@@ -152,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/translations': typeof BrowseTranslationsRouteRouteWithChildren
   '/dashboard': typeof BrowseDashboardRoute
   '/invalid': typeof BrowseInvalidRoute
+  '/valid': typeof BrowseValidRoute
   '/api/meta': typeof ApiMetaRoute
   '/translations/$fileNameId': typeof BrowseTranslationsFileNameIdRoute
   '/api/compilation/excerpts': typeof ApiCompilationExcerptsRouteWithChildren
@@ -173,6 +180,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/dashboard': typeof BrowseDashboardRoute
   '/invalid': typeof BrowseInvalidRoute
+  '/valid': typeof BrowseValidRoute
   '/api/meta': typeof ApiMetaRoute
   '/': typeof BrowseIndexRoute
   '/translations/$fileNameId': typeof BrowseTranslationsFileNameIdRoute
@@ -198,6 +206,7 @@ export interface FileRoutesById {
   '/_browse/translations': typeof BrowseTranslationsRouteRouteWithChildren
   '/_browse/dashboard': typeof BrowseDashboardRoute
   '/_browse/invalid': typeof BrowseInvalidRoute
+  '/_browse/valid': typeof BrowseValidRoute
   '/api/meta': typeof ApiMetaRoute
   '/_browse/': typeof BrowseIndexRoute
   '/_browse/translations/$fileNameId': typeof BrowseTranslationsFileNameIdRoute
@@ -224,6 +233,7 @@ export interface FileRouteTypes {
     | '/translations'
     | '/dashboard'
     | '/invalid'
+    | '/valid'
     | '/api/meta'
     | '/translations/$fileNameId'
     | '/api/compilation/excerpts'
@@ -245,6 +255,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/dashboard'
     | '/invalid'
+    | '/valid'
     | '/api/meta'
     | '/'
     | '/translations/$fileNameId'
@@ -269,6 +280,7 @@ export interface FileRouteTypes {
     | '/_browse/translations'
     | '/_browse/dashboard'
     | '/_browse/invalid'
+    | '/_browse/valid'
     | '/api/meta'
     | '/_browse/'
     | '/_browse/translations/$fileNameId'
@@ -340,6 +352,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/meta'
       preLoaderRoute: typeof ApiMetaRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_browse/valid': {
+      id: '/_browse/valid'
+      path: '/valid'
+      fullPath: '/valid'
+      preLoaderRoute: typeof BrowseValidRouteImport
+      parentRoute: typeof BrowseRoute
     }
     '/_browse/invalid': {
       id: '/_browse/invalid'
@@ -483,6 +502,7 @@ interface BrowseRouteChildren {
   BrowseTranslationsRouteRoute: typeof BrowseTranslationsRouteRouteWithChildren
   BrowseDashboardRoute: typeof BrowseDashboardRoute
   BrowseInvalidRoute: typeof BrowseInvalidRoute
+  BrowseValidRoute: typeof BrowseValidRoute
   BrowseIndexRoute: typeof BrowseIndexRoute
 }
 
@@ -490,6 +510,7 @@ const BrowseRouteChildren: BrowseRouteChildren = {
   BrowseTranslationsRouteRoute: BrowseTranslationsRouteRouteWithChildren,
   BrowseDashboardRoute: BrowseDashboardRoute,
   BrowseInvalidRoute: BrowseInvalidRoute,
+  BrowseValidRoute: BrowseValidRoute,
   BrowseIndexRoute: BrowseIndexRoute,
 }
 

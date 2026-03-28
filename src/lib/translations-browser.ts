@@ -370,7 +370,12 @@ export const getDashboardStats = async () => {
     };
 };
 
-export type TranslationFileStats = { path: string; model: string | undefined; isValid: boolean };
+export type TranslationFileStats = {
+    isValid: boolean;
+    model: string | undefined;
+    patchesApplied: number;
+    path: string;
+};
 
 export type TranslationStats = {
     totalFiles: number;
@@ -379,9 +384,13 @@ export type TranslationStats = {
     files: TranslationFileStats[];
     modelBreakdown: Record<string, number>;
     invalidByModel: Record<string, number>;
+    patchesApplied: number;
 };
 
-const collectAllFiles = async (currentDirectory: string, currentRelativePath: string): Promise<string[]> => {
+export const collectTranslationFilePaths = async (
+    currentDirectory: string,
+    currentRelativePath: string,
+): Promise<string[]> => {
     const files: string[] = [];
     const directoryEntries = await readdir(currentDirectory, { withFileTypes: true });
 
@@ -390,7 +399,7 @@ const collectAllFiles = async (currentDirectory: string, currentRelativePath: st
         const relativePath = currentRelativePath ? `${currentRelativePath}/${entry.name}` : entry.name;
 
         if (entry.isDirectory()) {
-            files.push(...(await collectAllFiles(fullPath, relativePath)));
+            files.push(...(await collectTranslationFilePaths(fullPath, relativePath)));
         } else if (entry.isFile() && entry.name.endsWith('.json')) {
             files.push(relativePath);
         }
@@ -401,7 +410,7 @@ const collectAllFiles = async (currentDirectory: string, currentRelativePath: st
 
 export const getTranslationStats = async (): Promise<TranslationStats> => {
     const translationsDir = requireTranslationsDir();
-    const filePaths = await collectAllFiles(translationsDir, '');
+    const filePaths = await collectTranslationFilePaths(translationsDir, '');
 
     const files: TranslationFileStats[] = [];
     const modelBreakdown: Record<string, number> = {};
@@ -413,32 +422,60 @@ export const getTranslationStats = async (): Promise<TranslationStats> => {
             const content = await readTextFile(fullPath);
             const analysis = analyzeTranslationValidity(content);
             const isValid = !isTranslationValidityAnalysisInvalid(analysis);
-            const model = analysis.model;
-
-            files.push({ isValid, model, path: filePath });
+            files.push({
+                isValid,
+                model: analysis.model,
+                patchesApplied: analysis.patchedExcerptIds.size,
+                path: filePath,
+            });
 
             // Count models
-            if (model) {
-                modelBreakdown[model] = (modelBreakdown[model] || 0) + 1;
+            if (analysis.model) {
+                modelBreakdown[analysis.model] = (modelBreakdown[analysis.model] || 0) + 1;
                 if (!isValid) {
-                    invalidByModel[model] = (invalidByModel[model] || 0) + 1;
+                    invalidByModel[analysis.model] = (invalidByModel[analysis.model] || 0) + 1;
                 }
             }
         } catch {
             // If parsing fails, mark as invalid with unknown model
-            files.push({ isValid: false, model: undefined, path: filePath });
+            files.push({ isValid: false, model: undefined, patchesApplied: 0, path: filePath });
             invalidByModel.unknown = (invalidByModel.unknown || 0) + 1;
         }
     }
 
-    const validFiles = files.filter((f) => f.isValid).length;
-    const invalidFiles = files.filter((f) => !f.isValid).length;
-    console.log(
-        'invalidFiles',
-        files.filter((f) => !f.isValid),
-    );
+    return summarizeTranslationStats(files);
+};
 
-    return { files, invalidByModel, invalidFiles, modelBreakdown, totalFiles: filePaths.length, validFiles };
+export const summarizeTranslationStats = (files: TranslationFileStats[]): TranslationStats => {
+    const modelBreakdown: Record<string, number> = {};
+    const invalidByModel: Record<string, number> = {};
+    let patchesApplied = 0;
+
+    for (const file of files) {
+        patchesApplied += file.patchesApplied;
+
+        if (!file.model) {
+            if (!file.isValid) {
+                invalidByModel.unknown = (invalidByModel.unknown || 0) + 1;
+            }
+            continue;
+        }
+
+        modelBreakdown[file.model] = (modelBreakdown[file.model] || 0) + 1;
+        if (!file.isValid) {
+            invalidByModel[file.model] = (invalidByModel[file.model] || 0) + 1;
+        }
+    }
+
+    return {
+        files,
+        invalidByModel,
+        invalidFiles: files.filter((f) => !f.isValid).length,
+        modelBreakdown,
+        patchesApplied,
+        totalFiles: files.length,
+        validFiles: files.filter((f) => f.isValid).length,
+    };
 };
 
 const buildInvalidExcerptRowsForFile = (filePath: string, content: string): InvalidExcerptRow[] => {
@@ -525,7 +562,7 @@ const buildInvalidExcerptRowsForFile = (filePath: string, content: string): Inva
 
 export const getInvalidExcerpts = async (): Promise<InvalidExcerptsResponse> => {
     const translationsDir = requireTranslationsDir();
-    const filePaths = await collectAllFiles(translationsDir, '');
+    const filePaths = await collectTranslationFilePaths(translationsDir, '');
     const rows: InvalidExcerptRow[] = [];
     let invalidFileCount = 0;
 

@@ -18,13 +18,14 @@ describe('filterTranslationTreeEntries', () => {
 
     const translationStats = {
         files: [
-            { isValid: false, model: 'gpt-5-4-pro', path: 'nested/a.json' },
-            { isValid: true, model: 'gpt-5-4-pro', path: 'nested/b.json' },
-            { isValid: false, model: 'grok-4', path: 'nested/c.json' },
+            { isValid: false, model: 'gpt-5-4-pro', patchesApplied: 0, path: 'nested/a.json' },
+            { isValid: true, model: 'gpt-5-4-pro', patchesApplied: 0, path: 'nested/b.json' },
+            { isValid: false, model: 'grok-4', patchesApplied: 0, path: 'nested/c.json' },
         ],
         invalidByModel: { 'gpt-5-4-pro': 1, 'grok-4': 1 },
         invalidFiles: 2,
         modelBreakdown: { 'gpt-5-4-pro': 2, 'grok-4': 1 },
+        patchesApplied: 0,
         totalFiles: 3,
         validFiles: 1,
     };

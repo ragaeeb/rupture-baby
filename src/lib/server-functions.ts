@@ -1,6 +1,11 @@
 import { createServerFn } from '@tanstack/react-start';
 
-import type { TranslationAssistRequest, TranslationFileResponse } from '@/lib/shell-types';
+import type {
+    CompilationPlaybackSimulationResponse,
+    SaveCompilationPlaybackResponse,
+    TranslationAssistRequest,
+    TranslationFileResponse,
+} from '@/lib/shell-types';
 import { isRupturePatch, isRupturePatchMetadata } from '@/lib/translation-patches';
 
 const getNonEmptyString = (value: unknown, fieldName: string) => {
@@ -107,6 +112,20 @@ export const fetchInvalidExcerptsData = createServerFn({ method: 'GET' }).handle
     const { getInvalidExcerptsResponse } = await import('@/lib/app-services');
     return getInvalidExcerptsResponse();
 });
+
+export const fetchCompilationPlaybackSimulationData = createServerFn({ method: 'GET' }).handler(
+    async (): Promise<CompilationPlaybackSimulationResponse> => {
+        const { getCompilationPlaybackSimulationResponse } = await import('@/lib/app-services');
+        return getCompilationPlaybackSimulationResponse();
+    },
+);
+
+export const saveCompilationPlaybackData = createServerFn({ method: 'POST' }).handler(
+    async (): Promise<SaveCompilationPlaybackResponse> => {
+        const { saveCompilationPlaybackResponse } = await import('@/lib/app-services');
+        return saveCompilationPlaybackResponse();
+    },
+);
 
 export const savePromptSelection = createServerFn({ method: 'POST' })
     .inputValidator(validatePromptInput)

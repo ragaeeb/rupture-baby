@@ -15,6 +15,99 @@ const formatCheckedAt = (checkedAt: string | undefined) => {
     return checkedAt.replace('T', ' ').replace('Z', ' UTC');
 };
 
+const formatIsoFromTimestamp = (value: number | null | undefined) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return '...';
+    }
+
+    return new Date(value * 1000).toISOString().replace('T', ' ').replace('Z', ' UTC');
+};
+
+const formatWorkDuration = (durationSeconds: number | null | undefined) => {
+    if (typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds)) {
+        return '...';
+    }
+
+    const totalMinutes = Math.max(0, Math.floor(durationSeconds / 60));
+    const days = Math.floor(totalMinutes / (24 * 60));
+    const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+    const minutes = totalMinutes % 60;
+
+    return [
+        days > 0 ? `${days}d` : null,
+        hours > 0 ? `${hours}h` : null,
+        minutes > 0 || (days === 0 && hours === 0) ? `${minutes}m` : null,
+    ]
+        .filter(Boolean)
+        .join(' ');
+};
+
+type CompilationStatsCardProps = { compilationStats: DashboardStatsResponse['compilationStats'] };
+
+const CompilationStatsCard = ({ compilationStats }: CompilationStatsCardProps) => (
+    <div className="rounded-xl border bg-card p-4">
+        <h2 className="font-semibold text-base">Compilation Stats</h2>
+        <div className="mt-3 grid gap-4 md:grid-cols-4">
+            <div>
+                <p className="text-muted-foreground text-xs">Untranslated</p>
+                <p className="font-semibold text-2xl text-amber-700">
+                    {compilationStats?.untranslatedSegments.toLocaleString() ?? '...'}
+                </p>
+            </div>
+            <div>
+                <p className="text-muted-foreground text-xs">Translated</p>
+                <p className="font-semibold text-2xl text-green-700">
+                    {compilationStats?.translatedSegments.toLocaleString() ?? '...'}
+                </p>
+            </div>
+            <div>
+                <p className="text-muted-foreground text-xs">Total Segments</p>
+                <p className="font-semibold text-2xl">{compilationStats?.totalSegments.toLocaleString() ?? '...'}</p>
+            </div>
+            <div>
+                <p className="text-muted-foreground text-xs">Unique Translators</p>
+                <p className="font-semibold text-2xl">
+                    {compilationStats?.uniqueTranslators.toLocaleString() ?? '...'}
+                </p>
+            </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <p className="font-medium">Excerpt Coverage</p>
+                <p className="mt-1 text-muted-foreground">
+                    {compilationStats
+                        ? `${compilationStats.excerpts.translated.toLocaleString()} translated / ${compilationStats.excerpts.untranslated.toLocaleString()} untranslated / ${compilationStats.excerpts.total.toLocaleString()} total`
+                        : '...'}
+                </p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <p className="font-medium">Heading Coverage</p>
+                <p className="mt-1 text-muted-foreground">
+                    {compilationStats
+                        ? `${compilationStats.headings.translated.toLocaleString()} translated / ${compilationStats.headings.untranslated.toLocaleString()} untranslated / ${compilationStats.headings.total.toLocaleString()} total`
+                        : '...'}
+                </p>
+            </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <div className="text-sm">
+                <p className="text-muted-foreground text-xs">Created</p>
+                <p className="mt-1 break-all">{formatIsoFromTimestamp(compilationStats?.createdAt)}</p>
+            </div>
+            <div className="text-sm">
+                <p className="text-muted-foreground text-xs">Last Updated</p>
+                <p className="mt-1 break-all">{formatIsoFromTimestamp(compilationStats?.lastUpdatedAt)}</p>
+            </div>
+            <div className="text-sm">
+                <p className="text-muted-foreground text-xs">Elapsed Work Span</p>
+                <p className="mt-1">{formatWorkDuration(compilationStats?.workDurationMs)}</p>
+            </div>
+        </div>
+    </div>
+);
+
 const getConfiguredPathStatus = ({
     configured,
     exists,
@@ -95,16 +188,24 @@ const DashboardPage = ({ stats, statsError }: DashboardPageProps) => {
 
                     <div className="rounded-xl border bg-card p-4">
                         <h2 className="font-semibold text-base">Translation Stats</h2>
-                        <div className="mt-3 grid grid-cols-3 gap-4">
+                        <div className="mt-3 grid gap-4 md:grid-cols-4">
                             <div>
                                 <p className="text-muted-foreground text-xs">Total Files</p>
                                 <p className="font-semibold text-2xl">{translationStats?.totalFiles ?? '...'}</p>
                             </div>
                             <div>
                                 <p className="text-muted-foreground text-xs">Valid</p>
-                                <p className="font-semibold text-2xl text-green-700">
-                                    {translationStats?.validFiles ?? '...'}
-                                </p>
+                                {translationStats ? (
+                                    <Link
+                                        aria-label="Simulate playback for valid translations"
+                                        className="font-semibold text-2xl text-green-700 underline-offset-4 hover:underline"
+                                        to="/valid"
+                                    >
+                                        {translationStats.validFiles}
+                                    </Link>
+                                ) : (
+                                    <p className="font-semibold text-2xl text-green-700">...</p>
+                                )}
                             </div>
                             <div>
                                 <p className="text-muted-foreground text-xs">Invalid</p>
@@ -120,9 +221,15 @@ const DashboardPage = ({ stats, statsError }: DashboardPageProps) => {
                                     <p className="font-semibold text-2xl text-destructive">...</p>
                                 )}
                             </div>
+                            <div>
+                                <p className="text-muted-foreground text-xs">Patches Applied</p>
+                                <p className="font-semibold text-2xl">{translationStats?.patchesApplied ?? '...'}</p>
+                            </div>
                         </div>
                     </div>
                 </div>
+
+                <CompilationStatsCard compilationStats={stats?.compilationStats} />
             </div>
         </>
     );

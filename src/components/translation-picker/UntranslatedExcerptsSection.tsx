@@ -1,4 +1,4 @@
-import type { Excerpt } from '@/lib/compilation';
+import type { Excerpt } from '@/types/compilation';
 
 type Pagination = { page: number; totalPages: number; hasPreviousPage: boolean; hasNextPage: boolean };
 

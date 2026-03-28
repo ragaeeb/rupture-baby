@@ -1,4 +1,5 @@
-import type { AITranslator, Excerpt } from './compilation';
+import type { AITranslator, Excerpt } from '../types/compilation';
+import { mapDateToSeconds } from './time';
 import type {
     AIModel,
     BlackiyaOriginal,
@@ -15,6 +16,19 @@ import { validateTranslationResponse } from './validation/utils';
 const COMMON_FORMAT_VALUE = 'common' as const;
 
 const toIsoTimestamp = (seconds: number): string => new Date(seconds * 1000).toISOString();
+
+const parseIsoTimestampToSeconds = (value: string | undefined): number | undefined => {
+    if (!value) {
+        return undefined;
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return undefined;
+    }
+
+    return mapDateToSeconds(parsed);
+};
 
 const MODEL_PLACEHOLDERS = new Set(['auto', 'unknown', 'snapshot']);
 
@@ -569,10 +583,12 @@ export const validateConversationExcerpts = (c: CommonConversationExport): Conve
         return { arabicSegments, excerpts: [], translatedSegments, validationErrors };
     }
 
+    const lastUpdatedAt = parseIsoTimestampToSeconds(c.updated_at) ?? parseIsoTimestampToSeconds(c.created_at);
     const excerpts = arabicSegments.map((e, i) => {
         return {
             from: 0,
             id: e.id,
+            lastUpdatedAt,
             nass: e.text,
             text: translatedSegments[i].text,
             translator: mapTranslatorToId(c.model!),

@@ -1,14 +1,18 @@
 import '@tanstack/react-start/server-only';
 
 import { getAppSettings } from '@/lib/app-settings';
+import { getCompilationPlaybackSimulation, saveCompilationPlayback } from '@/lib/compilation-playback';
+import { getCompilationStats } from '@/lib/compilation-stats';
 import { getPromptOptions, getSelectedPrompt, setSelectedPromptById } from '@/lib/prompt-state';
 import type {
     BrowseShellData,
+    CompilationPlaybackSimulationResponse,
     DashboardStatsResponse,
     DeleteTranslationResponse,
     InvalidExcerptsResponse,
     PromptStateResponse,
     PromptsPageData,
+    SaveCompilationPlaybackResponse,
     SettingsPageData,
     TranslationAssistRequest,
     TranslationAssistResponse,
@@ -25,8 +29,12 @@ import { getAppMeta } from './app-meta';
 import { getErrorMessage } from './error-utils';
 
 export const getDashboardStatsResponse = async (): Promise<DashboardStatsResponse> => {
-    const [dashboardPayload, translationStats] = await Promise.all([getDashboardStats(), getTranslationStats()]);
-    return { ...dashboardPayload, translationStats };
+    const [dashboardPayload, translationStats, compilationStats] = await Promise.all([
+        getDashboardStats(),
+        getTranslationStats(),
+        getCompilationStats().catch(() => null),
+    ]);
+    return { ...dashboardPayload, compilationStats, translationStats };
 };
 
 export const getPromptStateResponse = async (): Promise<PromptStateResponse> => {
@@ -101,6 +109,12 @@ export const requestTranslationAssistResponse = async (
 ): Promise<TranslationAssistResponse> => requestTranslationAssistance(request);
 
 export const getInvalidExcerptsResponse = async (): Promise<InvalidExcerptsResponse> => getInvalidExcerpts();
+
+export const getCompilationPlaybackSimulationResponse = async (): Promise<CompilationPlaybackSimulationResponse> =>
+    getCompilationPlaybackSimulation();
+
+export const saveCompilationPlaybackResponse = async (): Promise<SaveCompilationPlaybackResponse> =>
+    saveCompilationPlayback();
 
 export const deleteTranslationFileResponse = async (relativePath: string): Promise<DeleteTranslationResponse> => {
     await deleteTranslationJsonFile(relativePath);

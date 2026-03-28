@@ -1,4 +1,4 @@
-import type { Excerpt } from '@/lib/compilation';
+import type { Excerpt } from '@/types/compilation';
 
 type SelectionPreviewSectionProps = { promptTokens: number; selectedItems: Excerpt[] };
 
