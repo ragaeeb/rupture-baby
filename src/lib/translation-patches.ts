@@ -16,7 +16,7 @@ export type RupturePatchMetadata = {
         model: string;
         modelVersion?: string;
         provider: 'cloudflare' | 'google' | 'huggingface' | 'openrouter';
-        task: 'arabic_leak_correction';
+        task: 'all_caps_correction' | 'arabic_leak_correction';
     };
 };
 export type RupturePatchMetadataMap = Record<string, RupturePatchMetadata>;
@@ -85,7 +85,7 @@ export const isRupturePatchMetadata = (value: unknown): value is RupturePatchMet
             value.source.provider === 'google' ||
             value.source.provider === 'huggingface' ||
             value.source.provider === 'openrouter') &&
-        value.source.task === 'arabic_leak_correction' &&
+        (value.source.task === 'arabic_leak_correction' || value.source.task === 'all_caps_correction') &&
         (typeof value.source.modelVersion === 'string' || typeof value.source.modelVersion === 'undefined')
     );
 };

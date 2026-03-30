@@ -1,10 +1,12 @@
 import '@tanstack/react-start/server-only';
 
 import { getAppSettings } from '@/lib/app-settings';
+import { getCompilationAnalytics } from '@/lib/compilation-analytics';
 import { getCompilationPlaybackSimulation, saveCompilationPlayback } from '@/lib/compilation-playback';
 import { getCompilationStats } from '@/lib/compilation-stats';
-import { getPromptOptions, getSelectedPrompt, setSelectedPromptById } from '@/lib/prompt-state';
+import { getPromptOptions, getSelectedPrompt, setSelectedPrompt } from '@/lib/prompt-state';
 import type {
+    AnalyticsPageData,
     BrowseShellData,
     CompilationPlaybackSimulationResponse,
     DashboardStatsResponse,
@@ -43,8 +45,8 @@ export const getPromptStateResponse = async (): Promise<PromptStateResponse> => 
     return { options, selectedPromptContent: selected.content, selectedPromptId: selected.id };
 };
 
-export const setPromptStateResponse = async (promptId: string) => {
-    const selected = await setSelectedPromptById(promptId);
+export const setPromptStateResponse = async (promptId: string, content: string) => {
+    const selected = await setSelectedPrompt({ content, promptId });
 
     if (!selected) {
         const options = await getPromptOptions();
@@ -115,6 +117,14 @@ export const getCompilationPlaybackSimulationResponse = async (): Promise<Compil
 
 export const saveCompilationPlaybackResponse = async (): Promise<SaveCompilationPlaybackResponse> =>
     saveCompilationPlayback();
+
+export const getAnalyticsPageData = async (): Promise<AnalyticsPageData> => {
+    try {
+        return { analytics: await getCompilationAnalytics(), error: null };
+    } catch (error) {
+        return { analytics: null, error: getErrorMessage(error, 'Failed to load analytics.') };
+    }
+};
 
 export const deleteTranslationFileResponse = async (relativePath: string): Promise<DeleteTranslationResponse> => {
     await deleteTranslationJsonFile(relativePath);

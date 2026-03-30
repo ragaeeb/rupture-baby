@@ -1,8 +1,13 @@
+import { applyAllCapsCorrectionsToText } from './all-caps-corrections';
 import { applyArabicLeakCorrectionsToText } from './arabic-leak-corrections';
-import type { ArabicLeakCorrection, ArabicLeakCorrectionExcerpt } from './shell-types';
-import { validateConversationExcerpts } from './translation-parser';
+import type {
+    AllCapsCorrection,
+    AllCapsCorrectionExcerpt,
+    ArabicLeakCorrection,
+    ArabicLeakCorrectionExcerpt,
+} from './shell-types';
+import { getConversationSourceSegments, validateConversationExcerpts } from './translation-parser';
 import {
-    applyRupturePatchesToResponse,
     applyRupturePatchesToSegments,
     createRupturePatch,
     getRuptureDisplayHighlights,
@@ -16,7 +21,7 @@ import type { CommonConversationExport } from './translation-types';
 import { parseTranslationsInOrder } from './validation/textUtils';
 import type { Range, ValidationError } from './validation/types';
 
-export type FileViewMode = 'table' | 'json' | 'normal';
+export type FileViewMode = 'json' | 'normal' | 'normalized' | 'table';
 
 export type PendingEdit = { metadata?: RupturePatchMetadata; patch: RupturePatch };
 
@@ -28,6 +33,7 @@ export type TranslationRowData = {
     highlightRanges: Range[];
     id: string;
     isDirty: boolean;
+    isMissingTranslation: boolean;
     hasPatch: boolean;
     patchHighlights: RuptureHighlight[];
     translatedText: string;
@@ -35,6 +41,7 @@ export type TranslationRowData = {
 };
 
 export type TranslationTableModel = {
+    allCapsExcerpts: AllCapsCorrectionExcerpt[];
     arabicLeakExcerpts: ArabicLeakCorrectionExcerpt[];
     hasAlignmentErrors: boolean;
     hasPatches: boolean;
@@ -68,7 +75,7 @@ const mergeRupturePatchMetadata = (
                     metadata.source.provider === 'google' ||
                     metadata.source.provider === 'huggingface' ||
                     metadata.source.provider === 'openrouter') &&
-                metadata.source.task === 'arabic_leak_correction'
+                (metadata.source.task === 'arabic_leak_correction' || metadata.source.task === 'all_caps_correction')
             ) {
                 mergedPatchMetadata[excerptId] = metadata as RupturePatchMetadata;
             }
@@ -87,7 +94,7 @@ const mergeRupturePatchMetadata = (
 };
 
 export const isFileViewMode = (value: string | null): value is FileViewMode =>
-    value === 'table' || value === 'json' || value === 'normal';
+    value === 'table' || value === 'json' || value === 'normal' || value === 'normalized';
 
 export const getCommitButtonLabel = (pendingEditCount: number, isCommitting: boolean) => {
     if (isCommitting) {
@@ -116,7 +123,7 @@ export const mergePersistedRuptureMeta = (currentContent: unknown, persistedCont
 
 export const mergeRupturePatches = (
     savedPatches: unknown,
-    baseTranslatedSegments: ReturnType<typeof parseTranslationsInOrder>,
+    patchTargetSegments: ReturnType<typeof parseTranslationsInOrder>,
     pendingEdits: PendingEditMap,
 ): RupturePatches | undefined => {
     const pendingPatches = Object.fromEntries(
@@ -129,7 +136,7 @@ export const mergeRupturePatches = (
         ...pendingPatches,
     };
 
-    return normalizeRupturePatchesForSegments(baseTranslatedSegments, merged);
+    return normalizeRupturePatchesForSegments(patchTargetSegments, merged);
 };
 
 export const buildPatchedConversation = (
@@ -141,7 +148,12 @@ export const buildPatchedConversation = (
     }
 
     const baseTranslatedSegments = parseTranslationsInOrder(conversation.response);
-    const patches = mergeRupturePatches(conversation.__rupture?.patches, baseTranslatedSegments, pendingEdits);
+    const arabicSegments = getConversationSourceSegments(conversation);
+    const patchTargetSegments = arabicSegments.map((segment) => ({
+        id: segment.id,
+        text: baseTranslatedSegments.find((translated) => translated.id === segment.id)?.text ?? '',
+    }));
+    const patches = mergeRupturePatches(conversation.__rupture?.patches, patchTargetSegments, pendingEdits);
     if (!patches) {
         return conversation;
     }
@@ -149,7 +161,9 @@ export const buildPatchedConversation = (
     return {
         ...conversation,
         __rupture: { ...(conversation.__rupture ?? {}), patches },
-        response: applyRupturePatchesToResponse(conversation.response, patches),
+        response: applyRupturePatchesToSegments(patchTargetSegments, patches)
+            .map((segment) => `${segment.id} - ${segment.text}`)
+            .join('\n\n'),
     };
 };
 
@@ -188,12 +202,17 @@ export const buildTranslationTableModel = (
     }
 
     const baseTranslatedSegments = parseTranslationsInOrder(conversation.response);
-    const mergedPatches = mergeRupturePatches(conversation.__rupture?.patches, baseTranslatedSegments, pendingEdits);
-    const translatedSegments = applyRupturePatchesToSegments(baseTranslatedSegments, mergedPatches);
+    const arabicSegments = getConversationSourceSegments(conversation);
+    const baseTranslatedById = new Map(baseTranslatedSegments.map((segment) => [segment.id, segment.text] as const));
+    const patchTargetSegments = arabicSegments.map((segment) => ({
+        id: segment.id,
+        text: baseTranslatedById.get(segment.id) ?? '',
+    }));
+    const mergedPatches = mergeRupturePatches(conversation.__rupture?.patches, patchTargetSegments, pendingEdits);
+    const translatedSegments = applyRupturePatchesToSegments(patchTargetSegments, mergedPatches);
     const patchedResponse = translatedSegments.map((segment) => `${segment.id} - ${segment.text}`).join('\n\n');
     const validation = validateConversationExcerpts({ ...conversation, response: patchedResponse });
-    const { arabicSegments, excerpts, validationErrors } = validation;
-    const baseTranslatedById = new Map(baseTranslatedSegments.map((segment) => [segment.id, segment.text] as const));
+    const { excerpts, validationErrors } = validation;
     const translatedById = new Map(translatedSegments.map((segment) => [segment.id, segment.text] as const));
     const errorsById = new Map<string, ValidationError[]>();
     const patchesById = mergedPatches ?? {};
@@ -223,6 +242,7 @@ export const buildTranslationTableModel = (
             highlightRanges: rowErrors.flatMap((error) => (error.segmentRange ? [error.segmentRange] : [])),
             id: segment.id,
             isDirty: segment.id in pendingEdits,
+            isMissingTranslation: !excerpt && !translatedById.has(segment.id),
             patchHighlights: getRuptureDisplayHighlights(translatedText, patch, patchMetadata),
             translatedText,
             validationMessages: rowErrors.map((error) => error.message),
@@ -230,13 +250,28 @@ export const buildTranslationTableModel = (
     });
 
     return {
+        allCapsExcerpts: rows
+            .filter((row) => errorsById.get(row.id)?.some((error) => error.type === 'all_caps'))
+            .map((row) => ({
+                arabic: row.arabic,
+                filePath: filePath ?? '',
+                id: row.id,
+                matchHints: [
+                    ...new Set(
+                        (errorsById.get(row.id) ?? [])
+                            .filter((error) => error.type === 'all_caps' && error.matchText.trim().length > 0)
+                            .map((error) => error.matchText.trim()),
+                    ),
+                ],
+                translation: row.translatedText,
+            })),
         arabicLeakExcerpts: rows
             .filter((row) => errorsById.get(row.id)?.some((error) => error.type === 'arabic_leak'))
             .map((row) => ({
                 arabic: row.arabic,
                 filePath: filePath ?? '',
                 id: row.id,
-                leakHints: [
+                matchHints: [
                     ...new Set(
                         (errorsById.get(row.id) ?? [])
                             .filter((error) => error.type === 'arabic_leak' && error.matchText.trim().length > 0)
@@ -267,8 +302,8 @@ export const applyArabicLeakCorrectionsToPendingEdits = (
     }
 
     const rowsById = new Map(model.rows.map((row) => [row.id, row] as const));
-    const leakHintsById = new Map(
-        model.arabicLeakExcerpts.map((excerpt) => [excerpt.id, excerpt.leakHints ?? []] as const),
+    const matchHintsById = new Map(
+        model.arabicLeakExcerpts.map((excerpt) => [excerpt.id, excerpt.matchHints ?? []] as const),
     );
     const correctionsById = new Map<string, ArabicLeakCorrection[]>();
 
@@ -294,7 +329,7 @@ export const applyArabicLeakCorrectionsToPendingEdits = (
             excerptId,
             row.translatedText,
             fileCorrections,
-            leakHintsById.get(excerptId) ?? [],
+            matchHintsById.get(excerptId) ?? [],
         );
         const { issues: rowIssues, nextText, replacementHighlights: rowHighlights, rowChanged } = replacementResult;
         issues.push(...rowIssues);
@@ -306,6 +341,64 @@ export const applyArabicLeakCorrectionsToPendingEdits = (
         nextEdits = updatePendingEdits(nextEdits, excerptId, row.baseTranslatedText, nextText, {
             ...metadata,
             highlights: rowHighlights,
+        });
+        updatedRowCount += 1;
+    }
+
+    return { issues, nextEdits, updatedRowCount };
+};
+
+export const applyAllCapsCorrectionsToPendingEdits = (
+    model: TranslationTableModel | null,
+    currentEdits: PendingEditMap,
+    corrections: AllCapsCorrection[],
+    metadata: RupturePatchMetadata,
+    filePath: string,
+) => {
+    if (!model) {
+        return { issues: ['Failed to parse conversation.'], nextEdits: currentEdits, updatedRowCount: 0 };
+    }
+
+    const rowsById = new Map(model.rows.map((row) => [row.id, row] as const));
+    const matchHintsById = new Map(
+        model.allCapsExcerpts.map((excerpt) => [excerpt.id, excerpt.matchHints ?? []] as const),
+    );
+    const correctionsById = new Map<string, AllCapsCorrection[]>();
+
+    for (const correction of corrections) {
+        const existing = correctionsById.get(correction.id) ?? [];
+        existing.push(correction);
+        correctionsById.set(correction.id, existing);
+    }
+
+    let nextEdits = currentEdits;
+    const issues: string[] = [];
+    let updatedRowCount = 0;
+
+    for (const [excerptId, excerptCorrections] of correctionsById) {
+        const row = rowsById.get(excerptId);
+        if (!row) {
+            issues.push(`Received a correction for unknown excerpt ${excerptId}.`);
+            continue;
+        }
+
+        const fileCorrections = excerptCorrections.filter((correction) => correction.filePath === filePath);
+        const replacementResult = applyAllCapsCorrectionsToText(
+            excerptId,
+            row.translatedText,
+            fileCorrections,
+            matchHintsById.get(excerptId) ?? [],
+        );
+        issues.push(...replacementResult.issues);
+
+        const nextText = replacementResult.nextText;
+        if (!replacementResult.rowChanged || nextText === row.translatedText) {
+            continue;
+        }
+
+        nextEdits = updatePendingEdits(nextEdits, excerptId, row.baseTranslatedText, nextText, {
+            ...metadata,
+            highlights: replacementResult.replacementHighlights,
         });
         updatedRowCount += 1;
     }

@@ -9,7 +9,7 @@ describe('buildArabicLeakCorrectionPrompt', () => {
                 arabic: 'راجع الكتاب',
                 filePath: 'ignored.json',
                 id: 'P1',
-                leakHints: ['راجع'],
+                matchHints: ['راجع'],
                 translation: 'We should راجع the book.',
             },
         ]);

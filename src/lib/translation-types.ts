@@ -33,6 +33,8 @@ export type CommonConversationExport = {
     response: string;
     /** Array of reasoning/thought steps */
     reasoning: string[];
+    /** Total assistant reasoning time in seconds when the source platform exposes it */
+    reasoning_duration_sec?: number;
     /** Optional Blackiya metadata for legacy exports */
     __blackiya?: Record<string, unknown>;
     /** Optional Rupture metadata for file-level patches */
@@ -67,7 +69,20 @@ export type GrokSingleConversation = {
         shared_with_team: string | null;
         shared_with_user_ids: string | null;
     };
-    responses: Array<{ response: { _id: string; conversation_id: string; message: string } }>;
+    responses: Array<{
+        response: {
+            _id: string;
+            conversation_id: string;
+            message: string;
+            sender?: string;
+            model?: string;
+            thinking_start_time?: { $date?: { $numberLong?: string } };
+            thinking_end_time?: { $date?: { $numberLong?: string } };
+            agent_thinking_traces?: Array<{ thinking_trace?: string }>;
+            steps?: Array<{ tag_order?: string[]; tagged_text?: Record<string, string> }>;
+            metadata?: { request_metadata?: { model?: string } };
+        };
+    }>;
 };
 
 /**

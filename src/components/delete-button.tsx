@@ -32,15 +32,24 @@ export const DeleteConfirmDialog = ({
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>Delete File</DialogTitle>
-                    <DialogDescription>
-                        Are you sure you want to delete "{fileName}"? This action cannot be undone.
+                    <DialogDescription className="space-y-2">
+                        <p>Are you sure you want to delete this file?</p>
+                        <p className="break-all rounded-md bg-muted px-3 py-2 font-mono text-foreground text-xs">
+                            {fileName}
+                        </p>
+                        <p>This action cannot be undone.</p>
                     </DialogDescription>
                 </DialogHeader>
-                <DialogFooter className="gap-2 sm:gap-0">
-                    <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isDeleting}>
+                <DialogFooter className="flex-wrap gap-2 sm:justify-end sm:space-x-0">
+                    <Button
+                        className="sm:min-w-24"
+                        variant="outline"
+                        onClick={() => onOpenChange(false)}
+                        disabled={isDeleting}
+                    >
                         Cancel
                     </Button>
-                    <Button variant="destructive" onClick={onConfirm} disabled={isDeleting}>
+                    <Button className="sm:min-w-24" variant="destructive" onClick={onConfirm} disabled={isDeleting}>
                         {isDeleting ? 'Deleting...' : 'Delete'}
                     </Button>
                 </DialogFooter>

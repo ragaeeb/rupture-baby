@@ -4,12 +4,16 @@ import { GoogleGenAI } from '@google/genai';
 import { estimateTokenCount, LLMProvider } from 'bitaboom';
 import { ApiKeyManager, LoadBalancingStrategy, redactText } from 'kukamba';
 
-import { buildArabicLeakCorrectionPrompt, parseArabicLeakCorrectionResponse } from '@/lib/llm/arabic-leak-prompt';
+import {
+    buildArabicLeakCorrectionPrompt,
+    parseTextCorrectionResponse,
+} from '@/lib/llm/arabic-leak-prompt';
+import { buildAllCapsCorrectionPrompt } from '@/lib/llm/all-caps-prompt';
 import type { TranslationAssistProvider } from '@/lib/llm/types';
-import type { ArabicLeakCorrection, TranslationAssistRequest } from '@/lib/shell-types';
+import type { TranslationAssistRequest, TranslationTextCorrection } from '@/lib/shell-types';
 
 const MODEL = 'gemini-3.1-flash-lite-preview';
-const DEFAULT_MAX_EXCERPTS_PER_REQUEST = 10;
+const DEFAULT_MAX_EXCERPTS_PER_REQUEST = 5;
 const INTER_CHUNK_DELAY_MS = { max: 900, min: 300 } as const;
 export const GEMINI_PROVIDER_ID = 'gemini';
 
@@ -91,9 +95,13 @@ const serializeGoogleError = (error: unknown) => {
 const estimateTokenCounts = (parts: string[]) =>
     parts.reduce((total, part) => total + estimateTokenCount(part, LLMProvider.Gemini), 0);
 
-const estimateArabicLeakPromptTokens = (excerpts: TranslationAssistRequest['excerpts']) => {
-    return estimateTokenCounts([buildArabicLeakCorrectionPrompt(excerpts)]);
-};
+const buildPromptForTask = (request: TranslationAssistRequest, excerpts: TranslationAssistRequest['excerpts']) =>
+    request.task === 'all_caps_correction'
+        ? buildAllCapsCorrectionPrompt(excerpts)
+        : buildArabicLeakCorrectionPrompt(excerpts);
+
+const estimatePromptTokens = (request: TranslationAssistRequest, excerpts: TranslationAssistRequest['excerpts']) =>
+    estimateTokenCounts([buildPromptForTask(request, excerpts)]);
 
 const chunkAssistRequest = (request: TranslationAssistRequest) => {
     const chunks: TranslationAssistRequest['excerpts'][] = [];
@@ -209,7 +217,7 @@ export const googleTranslationAssistProvider: TranslationAssistProvider = {
         const startedAt = performance.now();
         const excerptCount = request.excerpts.length;
         const chunks = chunkAssistRequest(request);
-        const estimatedInputTokens = estimateArabicLeakPromptTokens(request.excerpts);
+        const estimatedInputTokens = estimatePromptTokens(request, request.excerpts);
 
         console.info('[google-genai] assist request', {
             chunkCount: chunks.length,
@@ -221,14 +229,15 @@ export const googleTranslationAssistProvider: TranslationAssistProvider = {
             task: request.task,
         });
 
-        const corrections: ArabicLeakCorrection[] = [];
+        const corrections: TranslationTextCorrection[] = [];
         let modelVersion: string | undefined;
 
         for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
             const chunk = chunks[chunkIndex];
             const chunkStartedAt = performance.now();
-            const chunkEstimatedTokens = estimateArabicLeakPromptTokens(chunk);
+            const chunkEstimatedTokens = estimatePromptTokens(request, chunk);
             const excerptById = new Map(chunk.map((excerpt) => [excerpt.id, excerpt] as const));
+            const prompt = buildPromptForTask(request, chunk);
 
             console.info('[google-genai] assist chunk request', {
                 chunkEstimatedTokens,
@@ -248,7 +257,7 @@ export const googleTranslationAssistProvider: TranslationAssistProvider = {
                                 'You are a precise Arabic-to-English Islamic translation QA assistant. Return valid JSON only.',
                             temperature: 0,
                         },
-                        contents: buildArabicLeakCorrectionPrompt(chunk),
+                        contents: prompt,
                         model: MODEL,
                     },
                     {
@@ -285,9 +294,9 @@ export const googleTranslationAssistProvider: TranslationAssistProvider = {
 
             console.log('responseText', responseText);
 
-            let chunkCorrections: ArabicLeakCorrection[];
+            let chunkCorrections: TranslationTextCorrection[];
             try {
-                chunkCorrections = parseArabicLeakCorrectionResponse(responseText).map((correction) => {
+                chunkCorrections = parseTextCorrectionResponse(responseText).map((correction) => {
                     const excerpt = excerptById.get(correction.id);
                     if (!excerpt) {
                         throw new Error(
@@ -350,7 +359,7 @@ export const googleTranslationAssistProvider: TranslationAssistProvider = {
             modelVersion,
             patchMetadata: {
                 appliedAt: new Date().toISOString(),
-                source: { kind: 'llm', model: MODEL, modelVersion, provider: 'google', task: 'arabic_leak_correction' },
+                source: { kind: 'llm', model: MODEL, modelVersion, provider: 'google', task: request.task },
             },
             provider: 'google',
             scope: request.scope,

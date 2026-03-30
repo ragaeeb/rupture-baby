@@ -9,6 +9,7 @@ import type {
     Message,
     MessageNode,
 } from './translation-types';
+import { MARKER_ID_PATTERN, TRANSLATION_MARKER_PARTS } from './validation/constants';
 import { parseTranslationsInOrder } from './validation/textUtils';
 import type { Segment, ValidationError } from './validation/types';
 import { validateTranslationResponse } from './validation/utils';
@@ -96,6 +97,15 @@ const inferLlmName = (conversation: BlackiyaOriginal, chain: Message[]): string 
     return inferProviderFromModel(conversation.default_model_slug);
 };
 
+const isOpenAiGptModel = (modelSlug: string | undefined): boolean => {
+    if (!modelSlug) {
+        return false;
+    }
+
+    const lower = modelSlug.toLowerCase();
+    return /^(gpt|o1|o3|o4|o5)/.test(lower) || lower.includes('chatgpt');
+};
+
 const extractMessageText = (message: Message): string => {
     const parts = message.content?.parts;
     if (Array.isArray(parts) && parts.length > 0) {
@@ -164,6 +174,11 @@ const getMessageTimestamp = (message: Message): number => {
     return 0;
 };
 
+const getFiniteMessageTimestamps = (message: Message): number[] => {
+    const timestamps = [message.create_time, message.update_time];
+    return timestamps.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+};
+
 const getAssistantMessagesByRecency = (conversation: BlackiyaOriginal): Message[] =>
     Object.values(conversation.mapping)
         .map((node) => node.message)
@@ -226,18 +241,87 @@ const findLastUserBefore = (chain: Message[], endIndex: number): number => {
     return -1;
 };
 
-const findLatestResponseText = (chain: Message[], startIndex: number, endIndex: number): string => {
+const findLatestResponseMessage = (chain: Message[], startIndex: number, endIndex: number): Message | null => {
     for (let i = endIndex; i > startIndex; i -= 1) {
         const message = chain[i];
         if (message.author?.role !== 'assistant') {
             continue;
         }
-        const text = extractMessageText(message);
-        if (text) {
-            return text;
+        if (extractMessageText(message)) {
+            return message;
         }
     }
-    return '';
+    return null;
+};
+
+const extractReasoningDurationSecondsFromMessage = (message: Message): number | undefined => {
+    const finishedDurationSec = (message.metadata as Record<string, unknown> | undefined)?.finished_duration_sec;
+    if (typeof finishedDurationSec === 'number' && Number.isFinite(finishedDurationSec)) {
+        return finishedDurationSec;
+    }
+
+    if (message.content?.content_type !== 'reasoning_recap' || typeof message.content.content !== 'string') {
+        return undefined;
+    }
+
+    const recapMatch = message.content.content.match(/Thought for\s+(\d+)s/i);
+    if (!recapMatch) {
+        return undefined;
+    }
+
+    const parsedDuration = Number(recapMatch[1]);
+    return Number.isFinite(parsedDuration) ? parsedDuration : undefined;
+};
+
+const collectAssistantMessagesForRange = (chain: Message[], startIndex: number, endIndex: number): Message[] => {
+    const assistantMessages: Message[] = [];
+
+    for (let i = endIndex; i > startIndex; i -= 1) {
+        const message = chain[i];
+        if (message.author?.role === 'assistant') {
+            assistantMessages.push(message);
+        }
+    }
+
+    return assistantMessages;
+};
+
+const deriveReasoningDurationFromAssistantTimestamps = (assistantMessages: Message[]): number | undefined => {
+    const assistantTimestamps = assistantMessages.flatMap(getFiniteMessageTimestamps);
+
+    if (assistantTimestamps.length === 0) {
+        return undefined;
+    }
+
+    const minAssistantTimestamp = Math.min(...assistantTimestamps);
+    const maxAssistantTimestamp = Math.max(...assistantTimestamps);
+    if (maxAssistantTimestamp > minAssistantTimestamp) {
+        return Math.round(maxAssistantTimestamp - minAssistantTimestamp);
+    }
+
+    return undefined;
+};
+
+const collectReasoningDurationSecondsForRange = (
+    chain: Message[],
+    startIndex: number,
+    endIndex: number,
+    model: string | undefined,
+): number | undefined => {
+    const assistantMessages = collectAssistantMessagesForRange(chain, startIndex, endIndex);
+
+    if (isOpenAiGptModel(model)) {
+        for (const message of assistantMessages) {
+            const duration = extractReasoningDurationSecondsFromMessage(message);
+            if (typeof duration === 'number') {
+                return duration;
+            }
+        }
+
+        return undefined;
+    }
+
+    return deriveReasoningDurationFromAssistantTimestamps(assistantMessages);
 };
 
 const collectReasoningForRange = (chain: Message[], startIndex: number, endIndex: number): string[] => {
@@ -290,7 +374,8 @@ const convertBlackiyaOriginalToCommon = (
     const userIndex = assistantIndex >= 0 ? findLastUserBefore(chain, assistantIndex) : -1;
 
     const prompt = userIndex >= 0 ? extractMessageText(chain[userIndex]) : extractLatestPrompt(chain);
-    const response = assistantIndex >= 0 ? findLatestResponseText(chain, userIndex, assistantIndex) : '';
+    const responseMessage = assistantIndex >= 0 ? findLatestResponseMessage(chain, userIndex, assistantIndex) : null;
+    const response = responseMessage ? extractMessageText(responseMessage) : '';
     const reasoningFromChain = assistantIndex >= 0 ? collectReasoningForRange(chain, userIndex, assistantIndex) : [];
     const minReasoningTimestamp: number | null =
         userIndex >= 0 && chain[userIndex] ? getMessageTimestamp(chain[userIndex]) : null;
@@ -298,31 +383,101 @@ const convertBlackiyaOriginalToCommon = (
         reasoningFromChain.length > 0
             ? reasoningFromChain
             : collectLatestAssistantReasoningFromMapping(conversation, minReasoningTimestamp);
+    const model = extractModel(conversation, chain);
+    const reasoningDurationSeconds =
+        assistantIndex >= 0
+            ? collectReasoningDurationSecondsForRange(chain, userIndex, assistantIndex, model)
+            : undefined;
 
     return {
         conversation_id: conversation.conversation_id || undefined,
         created_at: toIsoTimestamp(conversation.create_time),
         format: COMMON_FORMAT_VALUE,
         llm: llmName || inferLlmName(conversation, chain),
-        model: extractModel(conversation, chain),
+        model,
         prompt,
         reasoning,
+        reasoning_duration_sec: reasoningDurationSeconds,
         response,
         title: conversation.title || undefined,
         updated_at: toIsoTimestamp(conversation.update_time),
     };
 };
 
+const normalizeGrokSender = (sender: unknown) => (typeof sender === 'string' ? sender.trim().toLowerCase() : '');
+
+const parseGrokDateLong = (value: unknown): number | undefined => {
+    const rawValue =
+        typeof value === 'object' && value !== null
+            ? ((value as { $date?: { $numberLong?: string } }).$date?.$numberLong ?? null)
+            : null;
+    if (typeof rawValue !== 'string') {
+        return undefined;
+    }
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) {
+        return undefined;
+    }
+    return parsed;
+};
+
+const extractGrokModel = (grokResponse: GrokSingleConversation['responses'][number]['response']): string | undefined =>
+    normalizeModel(grokResponse.metadata?.request_metadata?.model) || normalizeModel(grokResponse.model);
+
+const extractGrokTraceFragments = (grokResponse: GrokSingleConversation['responses'][number]['response']) =>
+    (grokResponse.agent_thinking_traces ?? [])
+        .map((trace) => (typeof trace?.thinking_trace === 'string' ? trace.thinking_trace.trim() : ''))
+        .filter((trace) => trace.length > 0);
+
+const extractGrokStepFragments = (grokResponse: GrokSingleConversation['responses'][number]['response']) =>
+    (grokResponse.steps ?? []).flatMap((step) => {
+        const order = Array.isArray(step?.tag_order) ? step.tag_order : [];
+        const taggedText = step?.tagged_text ?? {};
+
+        return order
+            .map((tag) => taggedText[tag])
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            .map((value) => value.trim());
+    });
+
+const extractGrokReasoning = (grokResponse: GrokSingleConversation['responses'][number]['response']) => [
+    ...new Set([...extractGrokTraceFragments(grokResponse), ...extractGrokStepFragments(grokResponse)]),
+];
+
 const parseGrokConversation = (data: GrokSingleConversation): CommonConversationExport => {
-    const response = data.responses.length > 0 ? data.responses[data.responses.length - 1].response.message : '';
+    const humanResponses = data.responses.filter((entry) => normalizeGrokSender(entry.response.sender) === 'human');
+    const assistantResponses = data.responses.filter(
+        (entry) => normalizeGrokSender(entry.response.sender) === 'assistant',
+    );
+    const latestHumanResponse = humanResponses.length > 0 ? humanResponses[humanResponses.length - 1].response : null;
+    const latestAssistantResponse =
+        assistantResponses.length > 0 ? assistantResponses[assistantResponses.length - 1].response : null;
+    const prompt = latestHumanResponse?.message?.trim() ?? '';
+    const response = latestAssistantResponse?.message?.trim() ?? '';
+    const model = latestAssistantResponse ? extractGrokModel(latestAssistantResponse) : undefined;
+    const reasoning = latestAssistantResponse ? extractGrokReasoning(latestAssistantResponse) : [];
+    const thinkingStartTime = latestAssistantResponse
+        ? parseGrokDateLong(latestAssistantResponse.thinking_start_time)
+        : undefined;
+    const thinkingEndTime = latestAssistantResponse
+        ? parseGrokDateLong(latestAssistantResponse.thinking_end_time)
+        : undefined;
+    const reasoningDurationSeconds =
+        typeof thinkingStartTime === 'number' &&
+        typeof thinkingEndTime === 'number' &&
+        thinkingEndTime > thinkingStartTime
+            ? Math.round((thinkingEndTime - thinkingStartTime) / 1000)
+            : undefined;
 
     return {
         conversation_id: data.conversation.id,
         created_at: data.conversation.create_time,
         format: COMMON_FORMAT_VALUE,
         llm: 'Grok',
-        prompt: '',
-        reasoning: [],
+        model,
+        prompt,
+        reasoning,
+        reasoning_duration_sec: reasoningDurationSeconds,
         response,
         title: data.conversation.title || undefined,
         updated_at: data.conversation.modify_time,
@@ -571,9 +726,18 @@ const buildResponseAlignmentErrors = (
     return errors;
 };
 
+export const getConversationSourceSegments = (c: CommonConversationExport) => {
+    const firstSegmentPattern = new RegExp(
+        `^${MARKER_ID_PATTERN}${TRANSLATION_MARKER_PARTS.optionalSpace}${TRANSLATION_MARKER_PARTS.dashes}\\s*`,
+        'm',
+    );
+    const firstSegmentMatch = c.prompt.match(firstSegmentPattern);
+    const arabic = (firstSegmentMatch ? c.prompt.slice(firstSegmentMatch.index ?? 0) : c.prompt).trim();
+    return parseTranslationsInOrder(arabic);
+};
+
 export const validateConversationExcerpts = (c: CommonConversationExport): ConversationExcerptsValidation => {
-    const arabic = c.prompt.substring(c.prompt.indexOf('\n\n')).trim();
-    const arabicSegments = parseTranslationsInOrder(arabic);
+    const arabicSegments = getConversationSourceSegments(c);
     const translatedSegments = parseTranslationsInOrder(c.response);
     const validatorResult = validateTranslationResponse(arabicSegments, c.response);
     const alignmentErrors = buildResponseAlignmentErrors(arabicSegments, translatedSegments, c.response);

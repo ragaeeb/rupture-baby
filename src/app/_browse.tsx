@@ -2,6 +2,7 @@ import { createFileRoute, Outlet, useLocation } from '@tanstack/react-router';
 
 import { AppFooter } from '@/components/app-footer';
 import { AppSidebar } from '@/components/app-sidebar';
+import { RouteLoadingIndicator } from '@/components/route-loading-indicator';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { fetchBrowseShellData } from '@/lib/server-functions';
 
@@ -33,6 +34,7 @@ function BrowseLayoutComponent() {
                 translationStats={stats?.translationStats}
             />
             <SidebarInset>
+                <RouteLoadingIndicator />
                 <Outlet />
                 <AppFooter meta={meta} />
             </SidebarInset>

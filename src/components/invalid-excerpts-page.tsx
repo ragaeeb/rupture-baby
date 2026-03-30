@@ -2,7 +2,7 @@
 
 import { Link, useRouter } from '@tanstack/react-router';
 import { Wrench } from 'lucide-react';
-import { startTransition, useMemo, useState } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 
 import { EditableTranslationContent } from '@/components/translations/editable-translation-content';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { getStoredAssistProvider } from '@/lib/assist-provider-storage';
 import {
+    applyAllCapsCorrectionsToInvalidRows,
     applyArabicLeakCorrectionsToInvalidRows,
     commitInvalidPendingEdits,
     getInvalidPendingEditKey,
@@ -45,12 +46,14 @@ const getErrorTypeLabel = (errorType: string) =>
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join(' ');
 
-const MAX_FIX_SELECTION_SIZE = 10;
-
 const getRowKey = (row: InvalidExcerptsResponse['rows'][number]) => `${row.filePath}::${row.id ?? 'global'}`;
 
-const isFixableArabicLeakRow = (row: InvalidExcerptsResponse['rows'][number]) =>
-    Boolean(row.id && row.arabic && row.translation && row.errorTypes.includes('arabic_leak'));
+const isFixableRow = (row: InvalidExcerptsResponse['rows'][number]) =>
+    Boolean(
+        row.id &&
+            row.translation &&
+            (row.errorTypes.includes('arabic_leak') || row.errorTypes.includes('all_caps')),
+    );
 
 const isEditableTranslationRow = (
     row: InvalidExcerptsResponse['rows'][number],
@@ -75,7 +78,7 @@ const applyCheckedSelectionRange = (currentKeys: string[], orderedFixableRowKeys
         nextSelectedSet.add(key);
     }
 
-    return orderedFixableRowKeys.filter((key) => nextSelectedSet.has(key)).slice(0, MAX_FIX_SELECTION_SIZE);
+    return orderedFixableRowKeys.filter((key) => nextSelectedSet.has(key));
 };
 
 const getNextSelectedRowKeys = ({
@@ -107,15 +110,12 @@ const getNextSelectedRowKeys = ({
         return currentKeys.filter((key) => key !== rowKey);
     }
 
-    if (currentKeys.length >= MAX_FIX_SELECTION_SIZE) {
-        return currentKeys;
-    }
-
     return [...currentKeys, rowKey];
 };
 
 const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
     const router = useRouter();
+    const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
     const [selectedErrorType, setSelectedErrorType] = useState('all');
     const [assistError, setAssistError] = useState<string | null>(null);
     const [isFixingErrors, setIsFixingErrors] = useState(false);
@@ -175,7 +175,7 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
     const fixableRows = useMemo(
         () =>
             visibleRows.filter(
-                (row) => isFixableArabicLeakRow(row) && !pendingEdits[getInvalidPendingEditKey(row.filePath, row.id!)],
+                (row) => isFixableRow(row) && !pendingEdits[getInvalidPendingEditKey(row.filePath, row.id!)],
             ),
         [pendingEdits, visibleRows],
     );
@@ -183,11 +183,26 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
     const orderedFixableRowKeys = useMemo(() => fixableRows.map((row) => getRowKey(row)), [fixableRows]);
 
     const selectedBatchRows = useMemo(
-        () => fixableRows.filter((row) => selectedRowKeys.includes(getRowKey(row))).slice(0, MAX_FIX_SELECTION_SIZE),
+        () => fixableRows.filter((row) => selectedRowKeys.includes(getRowKey(row))),
         [fixableRows, selectedRowKeys],
     );
 
+    const allFixableRowsSelected = fixableRows.length > 0 && selectedRowKeys.length === fixableRows.length;
+    const someFixableRowsSelected = selectedRowKeys.length > 0 && selectedRowKeys.length < fixableRows.length;
+
     const pendingEditCount = Object.keys(pendingEdits).length;
+
+    useEffect(() => {
+        if (!selectAllCheckboxRef.current) {
+            return;
+        }
+
+        selectAllCheckboxRef.current.indeterminate = someFixableRowsSelected;
+    }, [someFixableRowsSelected]);
+
+    useEffect(() => {
+        setSelectedRowKeys((currentKeys) => currentKeys.filter((key) => orderedFixableRowKeys.includes(key)));
+    }, [orderedFixableRowKeys]);
 
     const handleDraftChange = (
         row: InvalidExcerptsResponse['rows'][number] & { baseTranslation: string; id: string; translation: string },
@@ -215,6 +230,15 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
         setLastClickedRowKey(rowKey);
     };
 
+    const handleToggleSelectAll = (checked: boolean) => {
+        if (pendingEditCount > 0) {
+            return;
+        }
+
+        setSelectedRowKeys(checked ? orderedFixableRowKeys : []);
+        setLastClickedRowKey(null);
+    };
+
     const handleFixErrors = async () => {
         if (selectedBatchRows.length === 0 || isFixingErrors || pendingEditCount > 0) {
             return;
@@ -224,30 +248,45 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
         setIsFixingErrors(true);
 
         try {
-            const response = await requestArabicLeakCorrections({
-                data: {
-                    excerpts: selectedBatchRows.map((row) => ({
-                        arabic: row.arabic!,
-                        filePath: row.filePath,
-                        id: row.id!,
-                        leakHints: row.arabicLeakHints,
-                        translation: row.translation!,
-                    })),
-                    providerId: getStoredAssistProvider() ?? undefined,
-                    scope: 'batch',
-                    task: 'arabic_leak_correction',
-                },
-            });
+            let nextEdits = pendingEdits;
+            const issues: string[] = [];
+            let updatedRowCount = 0;
 
-            const { issues, nextEdits, updatedRowCount } = applyArabicLeakCorrectionsToInvalidRows(
-                selectedBatchRows,
-                pendingEdits,
-                response.corrections,
-                response.patchMetadata,
-            );
+            for (const task of ['arabic_leak_correction', 'all_caps_correction'] as const) {
+                const taskRows = selectedBatchRows.filter((row) => row.errorTypes.includes(task === 'arabic_leak_correction' ? 'arabic_leak' : 'all_caps'));
+                if (taskRows.length === 0) {
+                    continue;
+                }
+
+                const response = await requestArabicLeakCorrections({
+                    data: {
+                        excerpts: taskRows.map((row) => ({
+                            arabic: row.arabic ?? '',
+                            filePath: row.filePath,
+                            id: row.id!,
+                            matchHints: task === 'arabic_leak_correction' ? row.arabicLeakHints : row.allCapsHints,
+                            translation:
+                                nextEdits[getInvalidPendingEditKey(row.filePath, row.id!)]?.nextTranslation ??
+                                row.translation!,
+                        })),
+                        providerId: getStoredAssistProvider() ?? undefined,
+                        scope: 'batch',
+                        task,
+                    },
+                });
+
+                const result =
+                    task === 'arabic_leak_correction'
+                        ? applyArabicLeakCorrectionsToInvalidRows(taskRows, nextEdits, response.corrections, response.patchMetadata)
+                        : applyAllCapsCorrectionsToInvalidRows(taskRows, nextEdits, response.corrections, response.patchMetadata);
+
+                nextEdits = result.nextEdits;
+                issues.push(...result.issues);
+                updatedRowCount += result.updatedRowCount;
+            }
 
             if (updatedRowCount === 0) {
-                setAssistError(issues[0] ?? 'The assistant did not return any usable Arabic leak corrections.');
+                setAssistError(issues[0] ?? 'The assistant did not return any usable corrections.');
                 return;
             }
 
@@ -329,7 +368,9 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
                                 type="button"
                             >
                                 <Wrench className="mr-2 size-4" />
-                                {isFixingErrors ? 'Fixing Errors...' : 'Fix'}
+                                {isFixingErrors
+                                    ? 'Fixing Errors...'
+                                    : `Fix Selected${selectedBatchRows.length > 0 ? ` (${selectedBatchRows.length})` : ''}`}
                             </button>
                             <button
                                 className="inline-flex h-10 items-center justify-center rounded-md border border-amber-500/30 bg-amber-50 px-3 font-medium text-amber-900 text-sm shadow-sm transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
@@ -370,7 +411,19 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
                         <table className="min-w-full">
                             <thead className="bg-muted/50">
                                 <tr className="border-b">
-                                    <th className="w-10 px-4 py-2 text-left font-medium text-[10px]"> </th>
+                                    <th className="w-10 px-4 py-2 text-left font-medium text-[10px]">
+                                        {fixableRows.length > 0 ? (
+                                            <input
+                                                ref={selectAllCheckboxRef}
+                                                aria-label="Select all fixable invalid excerpts"
+                                                checked={allFixableRowsSelected}
+                                                className="size-4 rounded border-input align-top"
+                                                disabled={pendingEditCount > 0}
+                                                onChange={(event) => handleToggleSelectAll(event.currentTarget.checked)}
+                                                type="checkbox"
+                                            />
+                                        ) : null}
+                                    </th>
                                     <th className="px-4 py-2 text-left font-medium text-[10px]">File</th>
                                     <th className="w-16 px-4 py-2 text-left font-medium text-[10px]">ID</th>
                                     <th className="w-1/2 px-4 py-2 text-right font-medium">Arabic</th>
@@ -389,16 +442,12 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
                                         key={`${row.filePath}:${row.id ?? 'global'}:${row.messages.join('|')}`}
                                     >
                                         <td className="px-4 py-3 align-top">
-                                            {isFixableArabicLeakRow(row) ? (
+                                            {isFixableRow(row) ? (
                                                 <input
                                                     aria-label={`Select ${row.id} for fixing`}
                                                     checked={selectedRowKeys.includes(getRowKey(row))}
                                                     className="size-4 rounded border-input align-top"
-                                                    disabled={
-                                                        pendingEditCount > 0 ||
-                                                        (!selectedRowKeys.includes(getRowKey(row)) &&
-                                                            selectedRowKeys.length >= MAX_FIX_SELECTION_SIZE)
-                                                    }
+                                                    disabled={pendingEditCount > 0}
                                                     onChange={(event) =>
                                                         handleToggleRowSelection(
                                                             getRowKey(row),

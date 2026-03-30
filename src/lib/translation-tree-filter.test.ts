@@ -18,14 +18,15 @@ describe('filterTranslationTreeEntries', () => {
 
     const translationStats = {
         files: [
-            { isValid: false, model: 'gpt-5-4-pro', patchesApplied: 0, path: 'nested/a.json' },
-            { isValid: true, model: 'gpt-5-4-pro', patchesApplied: 0, path: 'nested/b.json' },
-            { isValid: false, model: 'grok-4', patchesApplied: 0, path: 'nested/c.json' },
+            { isValid: false, model: 'gpt-5-4-pro', patchesApplied: 0, path: 'nested/a.json', reasoningDurationSec: 8 },
+            { isValid: true, model: 'gpt-5-4-pro', patchesApplied: 0, path: 'nested/b.json', reasoningDurationSec: 22 },
+            { isValid: false, model: 'grok-4', patchesApplied: 0, path: 'nested/c.json', reasoningDurationSec: 75 },
         ],
         invalidByModel: { 'gpt-5-4-pro': 1, 'grok-4': 1 },
         invalidFiles: 2,
         modelBreakdown: { 'gpt-5-4-pro': 2, 'grok-4': 1 },
         patchesApplied: 0,
+        thinkingTimeBreakdown: { '1m_plus': 1, '10_to_30s': 1, '30_to_60s': 0, lt_10s: 1 },
         totalFiles: 3,
         validFiles: 1,
     };
@@ -34,6 +35,7 @@ describe('filterTranslationTreeEntries', () => {
         const filtered = filterTranslationTreeEntries(entries, translationStats, {
             model: 'gpt-5-4-pro',
             status: 'invalid',
+            thinkingTime: 'all',
         });
 
         expect(filtered).toEqual([
@@ -47,8 +49,29 @@ describe('filterTranslationTreeEntries', () => {
     });
 
     it('should return the unfiltered tree when no filters are active', () => {
-        expect(filterTranslationTreeEntries(entries, translationStats, { model: 'all', status: 'all' })).toEqual(
-            entries,
-        );
+        expect(
+            filterTranslationTreeEntries(entries, translationStats, {
+                model: 'all',
+                status: 'all',
+                thinkingTime: 'all',
+            }),
+        ).toEqual(entries);
+    });
+
+    it('should filter by thinking time range', () => {
+        const filtered = filterTranslationTreeEntries(entries, translationStats, {
+            model: 'all',
+            status: 'all',
+            thinkingTime: '10_to_30s',
+        });
+
+        expect(filtered).toEqual([
+            {
+                children: [{ kind: 'file', name: 'b.json', relativePath: 'nested/b.json' }],
+                kind: 'directory',
+                name: 'nested',
+                relativePath: 'nested',
+            },
+        ]);
     });
 });

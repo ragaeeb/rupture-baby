@@ -5,9 +5,10 @@ import { mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
 import { MissingPathConfigError, requireCompilationFilePath, requireTranslationsDir } from '@/lib/data-paths';
+import { getThinkingTimeRange } from '@/lib/reasoning-time';
 import { fileExists, getFileSizeBytes, readTextFile, writeTextFile } from '@/lib/runtime-files';
 import type { InvalidExcerptRow, InvalidExcerptsResponse, JsonValue, TranslationFileResponse } from '@/lib/shell-types';
-import { parseTranslationToCommon } from './translation-parser';
+import { getConversationSourceSegments, parseTranslationToCommon } from './translation-parser';
 import {
     isRupturePatchMetadata,
     normalizeRupturePatchesForSegments,
@@ -248,15 +249,18 @@ export const writeTranslationPatch = async (
 
     const conversation = parseTranslationToCommon(parsedJson);
     const baseTranslatedSegments = parseTranslationsInOrder(conversation.response);
-    if (!baseTranslatedSegments.some((segment) => segment.id === excerptId)) {
+    const sourceSegments = getConversationSourceSegments(conversation);
+    const patchTargetSegments = sourceSegments.map((segment) => ({
+        id: segment.id,
+        text: baseTranslatedSegments.find((translated) => translated.id === segment.id)?.text ?? '',
+    }));
+    if (!patchTargetSegments.some((segment) => segment.id === excerptId)) {
         throw new Error('Excerpt not found.');
     }
 
     const nextContent = { ...parsedJson };
     const nextRupture = isRecord(nextContent.__rupture) ? { ...nextContent.__rupture } : {};
-    const rawNextPatches = {
-        ...(normalizeRupturePatchesForSegments(baseTranslatedSegments, nextRupture.patches) ?? {}),
-    };
+    const rawNextPatches = { ...(normalizeRupturePatchesForSegments(patchTargetSegments, nextRupture.patches) ?? {}) };
 
     if (patch) {
         rawNextPatches[excerptId] = patch;
@@ -264,7 +268,7 @@ export const writeTranslationPatch = async (
         delete rawNextPatches[excerptId];
     }
 
-    const nextPatches = normalizeRupturePatchesForSegments(baseTranslatedSegments, rawNextPatches) ?? {};
+    const nextPatches = normalizeRupturePatchesForSegments(patchTargetSegments, rawNextPatches) ?? {};
     const nextPatchMetadata = getNextPatchMetadata(
         nextRupture.patchMetadata,
         nextPatches,
@@ -375,6 +379,7 @@ export type TranslationFileStats = {
     model: string | undefined;
     patchesApplied: number;
     path: string;
+    reasoningDurationSec: number | undefined;
 };
 
 export type TranslationStats = {
@@ -385,6 +390,7 @@ export type TranslationStats = {
     modelBreakdown: Record<string, number>;
     invalidByModel: Record<string, number>;
     patchesApplied: number;
+    thinkingTimeBreakdown: Record<'10_to_30s' | '1m_plus' | '30_to_60s' | 'lt_10s', number>;
 };
 
 export const collectTranslationFilePaths = async (
@@ -427,6 +433,7 @@ export const getTranslationStats = async (): Promise<TranslationStats> => {
                 model: analysis.model,
                 patchesApplied: analysis.patchedExcerptIds.size,
                 path: filePath,
+                reasoningDurationSec: analysis.parsed.reasoning_duration_sec,
             });
 
             // Count models
@@ -438,7 +445,13 @@ export const getTranslationStats = async (): Promise<TranslationStats> => {
             }
         } catch {
             // If parsing fails, mark as invalid with unknown model
-            files.push({ isValid: false, model: undefined, patchesApplied: 0, path: filePath });
+            files.push({
+                isValid: false,
+                model: undefined,
+                patchesApplied: 0,
+                path: filePath,
+                reasoningDurationSec: undefined,
+            });
             invalidByModel.unknown = (invalidByModel.unknown || 0) + 1;
         }
     }
@@ -449,10 +462,15 @@ export const getTranslationStats = async (): Promise<TranslationStats> => {
 export const summarizeTranslationStats = (files: TranslationFileStats[]): TranslationStats => {
     const modelBreakdown: Record<string, number> = {};
     const invalidByModel: Record<string, number> = {};
+    const thinkingTimeBreakdown = { '1m_plus': 0, '10_to_30s': 0, '30_to_60s': 0, lt_10s: 0 };
     let patchesApplied = 0;
 
     for (const file of files) {
         patchesApplied += file.patchesApplied;
+        const thinkingTimeRange = getThinkingTimeRange(file.reasoningDurationSec);
+        if (thinkingTimeRange) {
+            thinkingTimeBreakdown[thinkingTimeRange] += 1;
+        }
 
         if (!file.model) {
             if (!file.isValid) {
@@ -473,6 +491,7 @@ export const summarizeTranslationStats = (files: TranslationFileStats[]): Transl
         invalidFiles: files.filter((f) => !f.isValid).length,
         modelBreakdown,
         patchesApplied,
+        thinkingTimeBreakdown,
         totalFiles: files.length,
         validFiles: files.filter((f) => f.isValid).length,
     };
@@ -488,13 +507,20 @@ const buildInvalidExcerptRowsForFile = (filePath: string, content: string): Inva
     }
     const errorsById = new Map<
         string,
-        { leakHints: string[]; messages: string[]; types: ValidationErrorType[]; validationHighlightRanges: Range[] }
+        {
+            allCapsHints: string[];
+            leakHints: string[];
+            messages: string[];
+            types: ValidationErrorType[];
+            validationHighlightRanges: Range[];
+        }
     >();
     const globalErrorBucket: { messages: string[]; types: ValidationErrorType[] } = { messages: [], types: [] };
 
     for (const error of visibleValidationErrors) {
         if (error.id) {
             const existing = errorsById.get(error.id) ?? {
+                allCapsHints: [],
                 leakHints: [],
                 messages: [],
                 types: [],
@@ -504,6 +530,9 @@ const buildInvalidExcerptRowsForFile = (filePath: string, content: string): Inva
             existing.types.push(error.type);
             if (error.type === 'arabic_leak' && error.matchText.trim().length > 0) {
                 existing.leakHints.push(error.matchText.trim());
+            }
+            if (error.type === 'all_caps' && error.matchText.trim().length > 0) {
+                existing.allCapsHints.push(error.matchText.trim());
             }
             if (error.segmentRange) {
                 existing.validationHighlightRanges.push(error.segmentRange);
@@ -523,6 +552,7 @@ const buildInvalidExcerptRowsForFile = (filePath: string, content: string): Inva
 
         return [
             {
+                allCapsHints: [...new Set(errorBucket.allCapsHints)],
                 arabic: segment.text,
                 arabicLeakHints: [...new Set(errorBucket.leakHints)],
                 baseTranslation: baseTranslatedById.get(segment.id) ?? null,
@@ -538,13 +568,39 @@ const buildInvalidExcerptRowsForFile = (filePath: string, content: string): Inva
         ];
     });
 
+    const matchedSegmentIds = new Set(validation.arabicSegments.map((segment) => segment.id));
+    const unmatchedIdRows: InvalidExcerptRow[] = [...errorsById.entries()].flatMap(([id, errorBucket]) => {
+        if (matchedSegmentIds.has(id) || errorBucket.messages.length === 0) {
+            return [];
+        }
+
+        return [
+            {
+                allCapsHints: [...new Set(errorBucket.allCapsHints)],
+                arabic: null,
+                arabicLeakHints: [...new Set(errorBucket.leakHints)],
+                baseTranslation: baseTranslatedById.get(id) ?? translatedById.get(id) ?? null,
+                errorTypes: [...new Set(errorBucket.types)],
+                filePath,
+                id,
+                messages: errorBucket.messages,
+                model,
+                patchHighlights: [],
+                translation: translatedById.get(id) ?? null,
+                validationHighlightRanges: errorBucket.validationHighlightRanges,
+            },
+        ];
+    });
+
     if (globalErrorBucket.messages.length === 0) {
-        return excerptRows;
+        return [...excerptRows, ...unmatchedIdRows];
     }
 
     return [
         ...excerptRows,
+        ...unmatchedIdRows,
         {
+            allCapsHints: [],
             arabic: null,
             arabicLeakHints: [],
             baseTranslation: null,
@@ -579,6 +635,7 @@ export const getInvalidExcerpts = async (): Promise<InvalidExcerptsResponse> => 
         } catch (error) {
             invalidFileCount += 1;
             rows.push({
+                allCapsHints: [],
                 arabic: null,
                 arabicLeakHints: [],
                 baseTranslation: null,

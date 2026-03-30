@@ -1,14 +1,14 @@
-import type { ArabicLeakCorrection, TranslationAssistRequest } from '@/lib/shell-types';
+import type { TranslationAssistRequest, TranslationTextCorrection } from '@/lib/shell-types';
 
-type ModelArabicLeakCorrection = Omit<ArabicLeakCorrection, 'filePath'>;
-type ModelArabicLeakCorrectionEntry = { match: string; replacement: string };
-type ModelArabicLeakCorrectionMap = Record<string, ModelArabicLeakCorrectionEntry[]>;
+type ModelTextCorrection = Omit<TranslationTextCorrection, 'filePath'>;
+type ModelTextCorrectionEntry = { match: string; replacement: string };
+type ModelTextCorrectionMap = Record<string, ModelTextCorrectionEntry[]>;
 
 export const buildArabicLeakCorrectionPrompt = (excerpts: TranslationAssistRequest['excerpts']) => {
-    const promptExcerpts = excerpts.map(({ arabic, id, leakHints, translation }) => ({
+    const promptExcerpts = excerpts.map(({ arabic, id, matchHints, translation }) => ({
         arabic,
         id,
-        leakHints: leakHints && leakHints.length > 0 ? leakHints : undefined,
+        matchHints: matchHints && matchHints.length > 0 ? matchHints : undefined,
         translation,
     }));
 
@@ -18,13 +18,13 @@ export const buildArabicLeakCorrectionPrompt = (excerpts: TranslationAssistReque
         'I will provide you with a JSON object containing translated passages that contain one or more untranslated Arabic-script words or phrases that were left in by the original translator. Your task is to identify only those Arabic-script leaks in each passage and provide the correct English replacement.',
         '',
         'INPUT FORMAT:',
-        '{"excerpts": [{"id": "...", "arabic": "...", "translation": "...", "leakHints": ["..."]}, ...]}',
+        '{"excerpts": [{"id": "...", "arabic": "...", "translation": "...", "matchHints": ["..."]}, ...]}',
         '',
         'RULES:',
         '1. Identify only Arabic-script words or phrases that remain untranslated in the English translation.',
         '2. Consecutive Arabic words or characters that form a single phrase should be treated as ONE match, including any punctuation attached to them.',
         '3. Do not return corrections for transliterations, glosses, explanatory parentheticals, Islamic terminology already translated into English, or stylistic choices that do not contain Arabic script.',
-        '4. If "leakHints" are provided, treat them as the exact Arabic-script leak targets. Prefer those hints over searching for other issues.',
+        '4. If "matchHints" are provided, treat them as the exact Arabic-script leak targets. Prefer those hints over searching for other issues.',
         '5. If the same Arabic word or phrase appears more than once in the same passage and all occurrences should receive the same replacement, return that correction only ONCE for that passage.',
         '6. If the same Arabic word or phrase appears more than once in the same passage and carries a different meaning each time, expand the "match" field with enough surrounding translated words to make it uniquely identifiable. Only do this when meanings differ.',
         '7. Use the provided original Arabic source text to determine the correct translation in context.',
@@ -58,7 +58,7 @@ export const buildArabicLeakCorrectionPrompt = (excerpts: TranslationAssistReque
     ].join('\n');
 };
 
-const isArabicLeakCorrection = (value: unknown): value is ModelArabicLeakCorrection =>
+const isTextCorrection = (value: unknown): value is ModelTextCorrection =>
     typeof value === 'object' &&
     value !== null &&
     'id' in value &&
@@ -68,7 +68,7 @@ const isArabicLeakCorrection = (value: unknown): value is ModelArabicLeakCorrect
     typeof value.match === 'string' &&
     typeof value.replacement === 'string';
 
-const isArabicLeakCorrectionEntry = (value: unknown): value is ModelArabicLeakCorrectionEntry =>
+const isTextCorrectionEntry = (value: unknown): value is ModelTextCorrectionEntry =>
     typeof value === 'object' &&
     value !== null &&
     'match' in value &&
@@ -76,7 +76,7 @@ const isArabicLeakCorrectionEntry = (value: unknown): value is ModelArabicLeakCo
     typeof value.match === 'string' &&
     typeof value.replacement === 'string';
 
-export const buildArabicLeakCorrectionJsonSchema = (excerpts: TranslationAssistRequest['excerpts']) => ({
+export const buildTextCorrectionJsonSchema = (excerpts: TranslationAssistRequest['excerpts']) => ({
     additionalProperties: false,
     properties: {
         results: {
@@ -103,7 +103,7 @@ export const buildArabicLeakCorrectionJsonSchema = (excerpts: TranslationAssistR
     type: 'object',
 });
 
-const dedupeArabicLeakCorrections = (corrections: ModelArabicLeakCorrection[]) => {
+const dedupeTextCorrections = (corrections: ModelTextCorrection[]) => {
     const seen = new Set<string>();
 
     return corrections.filter((correction) => {
@@ -134,7 +134,7 @@ const extractRecoverableJsonObject = (text: string) => {
     return null;
 };
 
-const parseArabicLeakCorrectionJson = (responseText: string) => {
+const parseTextCorrectionJson = (responseText: string) => {
     try {
         return JSON.parse(responseText) as { corrections?: unknown; results?: unknown };
     } catch (error) {
@@ -147,11 +147,11 @@ const parseArabicLeakCorrectionJson = (responseText: string) => {
     }
 };
 
-export const parseArabicLeakCorrectionResponse = (responseText: string): ModelArabicLeakCorrection[] => {
-    const parsed = parseArabicLeakCorrectionJson(responseText);
+export const parseTextCorrectionResponse = (responseText: string): ModelTextCorrection[] => {
+    const parsed = parseTextCorrectionJson(responseText);
 
-    if (Array.isArray(parsed.corrections) && parsed.corrections.every(isArabicLeakCorrection)) {
-        return dedupeArabicLeakCorrections(
+    if (Array.isArray(parsed.corrections) && parsed.corrections.every(isTextCorrection)) {
+        return dedupeTextCorrections(
             parsed.corrections.filter(
                 (correction) =>
                     correction.id.trim().length > 0 && correction.match.length > 0 && correction.replacement.length > 0,
@@ -164,11 +164,11 @@ export const parseArabicLeakCorrectionResponse = (responseText: string): ModelAr
         parsed.results !== null &&
         !Array.isArray(parsed.results) &&
         Object.values(parsed.results).every(
-            (corrections) => Array.isArray(corrections) && corrections.every(isArabicLeakCorrectionEntry),
+            (corrections) => Array.isArray(corrections) && corrections.every(isTextCorrectionEntry),
         )
     ) {
-        return dedupeArabicLeakCorrections(
-            Object.entries(parsed.results as ModelArabicLeakCorrectionMap).flatMap(([id, corrections]) =>
+        return dedupeTextCorrections(
+            Object.entries(parsed.results as ModelTextCorrectionMap).flatMap(([id, corrections]) =>
                 corrections
                     .filter((correction) => correction.match.length > 0 && correction.replacement.length > 0)
                     .map((correction) => ({ ...correction, id })),
@@ -178,3 +178,6 @@ export const parseArabicLeakCorrectionResponse = (responseText: string): ModelAr
 
     throw new Error('The provider returned an invalid Arabic leak correction payload.');
 };
+
+export const buildArabicLeakCorrectionJsonSchema = buildTextCorrectionJsonSchema;
+export const parseArabicLeakCorrectionResponse = parseTextCorrectionResponse;

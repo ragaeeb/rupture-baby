@@ -1,17 +1,26 @@
+import { getThinkingTimeRange, type ThinkingTimeRange } from '@/lib/reasoning-time';
 import type { DashboardStatsResponse, TranslationTreeNode } from '@/lib/shell-types';
 
-export type TranslationTreeFilter = { model: string | 'all'; status: 'all' | 'valid' | 'invalid' };
+export type TranslationTreeFilter = {
+    model: string | 'all';
+    status: 'all' | 'valid' | 'invalid';
+    thinkingTime: 'all' | Exclude<ThinkingTimeRange, 'all'>;
+};
 
 const filterTreeNode = (
     node: TranslationTreeNode,
     modelPaths: Set<string> | null,
     statusPaths: Set<string> | null,
+    thinkingTimePaths: Set<string> | null,
 ): TranslationTreeNode | null => {
     if (node.kind === 'file') {
         if (modelPaths && !modelPaths.has(node.relativePath)) {
             return null;
         }
         if (statusPaths && !statusPaths.has(node.relativePath)) {
+            return null;
+        }
+        if (thinkingTimePaths && !thinkingTimePaths.has(node.relativePath)) {
             return null;
         }
         return node;
@@ -22,7 +31,7 @@ const filterTreeNode = (
     }
 
     const filteredChildren = node.children
-        .map((child) => filterTreeNode(child, modelPaths, statusPaths))
+        .map((child) => filterTreeNode(child, modelPaths, statusPaths, thinkingTimePaths))
         .filter((child): child is TranslationTreeNode => child !== null);
 
     if (filteredChildren.length === 0) {
@@ -37,7 +46,7 @@ export const filterTranslationTreeEntries = (
     translationStats: DashboardStatsResponse['translationStats'] | undefined,
     filter: TranslationTreeFilter,
 ): TranslationTreeNode[] => {
-    const hasActiveFilters = filter.model !== 'all' || filter.status !== 'all';
+    const hasActiveFilters = filter.model !== 'all' || filter.status !== 'all' || filter.thinkingTime !== 'all';
 
     if (!translationStats) {
         return hasActiveFilters ? [] : entries;
@@ -61,7 +70,16 @@ export const filterTranslationTreeEntries = (
               )
             : null;
 
+    const thinkingTimePaths =
+        filter.thinkingTime !== 'all'
+            ? new Set(
+                  translationStats.files
+                      .filter((file) => getThinkingTimeRange(file.reasoningDurationSec) === filter.thinkingTime)
+                      .map((file) => file.path),
+              )
+            : null;
+
     return entries
-        .map((node) => filterTreeNode(node, modelPaths, statusPaths))
+        .map((node) => filterTreeNode(node, modelPaths, statusPaths, thinkingTimePaths))
         .filter((node): node is TranslationTreeNode => node !== null);
 };

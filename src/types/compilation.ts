@@ -3,7 +3,17 @@ export type ExcerptType = 'book' | 'chapter';
 export type AITranslator = 879 | 890 | 893 | 895 | 900 | 901 | 903;
 
 export type AITranslation = { text?: string; translator?: AITranslator; lastUpdatedAt?: number };
-export type ExcerptMetadata = { alt?: AITranslation[]; num?: string; type?: ExcerptType };
+export type PatchedTranslationMetadata = {
+    appliedAt: number;
+    model: string;
+    type: 'all_caps_correction' | 'arabic_leak_correction';
+};
+export type ExcerptMetadata = {
+    alt?: AITranslation[];
+    num?: string;
+    patched?: PatchedTranslationMetadata;
+    type?: ExcerptType;
+};
 
 export type IndexedExcerpt = { from: number; to?: number; nass: string; meta?: ExcerptMetadata; id: string };
 

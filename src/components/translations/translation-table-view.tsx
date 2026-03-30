@@ -33,6 +33,12 @@ const getRowIdClassName = (row: TranslationRowData) => {
 };
 
 const getTranslationControlClassName = (row: TranslationRowData, mode: 'button' | 'textarea') => {
+    if (row.validationMessages.length > 0) {
+        return mode === 'button'
+            ? 'block w-full rounded border border-destructive/30 bg-background px-3 py-2 text-left font-medium text-destructive shadow-sm transition-colors hover:bg-destructive/5'
+            : 'block w-full resize-none overflow-hidden rounded border border-destructive/30 bg-background px-3 py-2 font-medium text-[10px] text-destructive leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-destructive/40';
+    }
+
     if (row.isDirty) {
         return mode === 'button'
             ? 'block w-full rounded border border-amber-400/50 bg-amber-50 px-3 py-2 text-left font-medium text-amber-900 shadow-sm transition-colors hover:bg-amber-100/60'
@@ -45,9 +51,15 @@ const getTranslationControlClassName = (row: TranslationRowData, mode: 'button' 
             : 'block w-full resize-none overflow-hidden rounded border border-amber-400/40 bg-amber-50/60 px-3 py-2 font-medium text-[10px] text-amber-950 leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40';
     }
 
+    if (row.isMissingTranslation) {
+        return mode === 'button'
+            ? 'block w-full rounded border border-dashed border-destructive/30 bg-destructive/5 px-3 py-2 text-left font-medium text-destructive shadow-sm transition-colors hover:bg-destructive/10'
+            : 'block w-full resize-none overflow-hidden rounded border border-dashed border-destructive/30 bg-background px-3 py-2 font-medium text-[10px] text-foreground leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-destructive/30';
+    }
+
     return mode === 'button'
-        ? 'block w-full rounded border border-destructive/30 bg-background px-3 py-2 text-left font-medium text-destructive shadow-sm transition-colors hover:bg-destructive/5'
-        : 'block w-full resize-none overflow-hidden rounded border border-destructive/30 bg-background px-3 py-2 font-medium text-[10px] text-destructive leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-destructive/40';
+        ? 'block w-full rounded border border-input bg-background px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted/40'
+        : 'block w-full resize-none overflow-hidden rounded border border-input bg-background px-3 py-2 text-[10px] leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40';
 };
 
 const getValidationMessagesClassName = (row: TranslationRowData) => {
@@ -76,8 +88,6 @@ const TranslationRow = ({
     onStopEditing: () => void;
     row: TranslationRowData;
 }) => {
-    const isEditable = row.validationMessages.length > 0 || row.isDirty;
-
     return (
         <tr className={getRowClassName(row)}>
             <td className={getRowIdClassName(row)}>{row.id}</td>
@@ -88,7 +98,8 @@ const TranslationRow = ({
                 <EditableTranslationContent
                     ariaLabel={`Edit translation for ${row.id}`}
                     buttonClassName={getTranslationControlClassName(row, 'button')}
-                    editable={isEditable}
+                    editable
+                    emptyDisplayValue={row.isMissingTranslation ? '[MISSING TRANSLATION]' : undefined}
                     isEditing={isEditing}
                     onCommit={(nextText) => {
                         if (nextText !== row.translatedText) {
@@ -174,7 +185,7 @@ export const TranslationTableView = ({
                                 <p className="mt-2 text-destructive text-xs">{arabicLeakFixError}</p>
                             ) : null}
                         </div>
-                        {model.arabicLeakExcerpts.length > 0 ? (
+                        {model.arabicLeakExcerpts.length > 0 || model.allCapsExcerpts.length > 0 ? (
                             <button
                                 className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-amber-400/40 bg-amber-50 px-3 font-medium text-amber-950 text-xs shadow-sm transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
                                 disabled={isFixingArabicLeaks}
@@ -182,7 +193,7 @@ export const TranslationTableView = ({
                                 type="button"
                             >
                                 <Wrench className="mr-2 size-3.5" />
-                                {isFixingArabicLeaks ? 'Fixing Arabic leaks...' : 'Fix Arabic leaks'}
+                                {isFixingArabicLeaks ? 'Fixing supported errors...' : 'Fix supported errors'}
                             </button>
                         ) : null}
                     </div>

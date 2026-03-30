@@ -1,8 +1,9 @@
 import '@tanstack/react-start/server-only';
 
-import { buildArabicLeakCorrectionPrompt, parseArabicLeakCorrectionResponse } from '@/lib/llm/arabic-leak-prompt';
+import { buildArabicLeakCorrectionPrompt, parseTextCorrectionResponse } from '@/lib/llm/arabic-leak-prompt';
+import { buildAllCapsCorrectionPrompt } from '@/lib/llm/all-caps-prompt';
 import type { TranslationAssistProvider } from '@/lib/llm/types';
-import type { ArabicLeakCorrection, TranslationAssistRequest } from '@/lib/shell-types';
+import type { TranslationAssistRequest, TranslationTextCorrection } from '@/lib/shell-types';
 
 const DEFAULT_MAX_EXCERPTS_PER_REQUEST = 10;
 const DEFAULT_MODEL = 'meta-llama/Llama-3.3-70B-Instruct';
@@ -112,7 +113,7 @@ const getStructuredPreview = (value: unknown, maxLength = 3000) => {
     return getResponsePreview(serialized, maxLength);
 };
 
-const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts']) => {
+const requestChunkCorrections = async (request: TranslationAssistRequest, chunk: TranslationAssistRequest['excerpts']) => {
     const model = getHuggingFaceModel();
     const excerptById = new Map<string, TranslationAssistRequest['excerpts'][number]>();
 
@@ -124,13 +125,13 @@ const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts
         excerptById.set(excerpt.id, excerpt);
     }
 
-    const outboundExcerpts = chunk.map(({ arabic, id, leakHints, translation }) => ({
+    const outboundExcerpts = chunk.map(({ arabic, id, matchHints, translation }) => ({
         arabic,
         id,
-        leakHints: leakHints && leakHints.length > 0 ? leakHints : undefined,
+        matchHints: matchHints && matchHints.length > 0 ? matchHints : undefined,
         translation,
     }));
-    const prompt = buildArabicLeakCorrectionPrompt(chunk);
+    const prompt = buildPromptForTask(request, chunk);
 
     console.info('[huggingface] outbound request payload', {
         excerptCount: chunk.length,
@@ -195,7 +196,7 @@ const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts
         responseId: payload.id,
     });
 
-    const corrections = parseArabicLeakCorrectionResponse(responseText).map((correction) => {
+    const corrections = parseTextCorrectionResponse(responseText).map((correction) => {
         const excerpt = excerptById.get(correction.id);
         if (!excerpt) {
             throw new Error(`Hugging Face returned a correction for unknown excerpt id "${correction.id}".`);
@@ -236,7 +237,7 @@ export const huggingFaceTranslationAssistProvider: TranslationAssistProvider = {
             task: request.task,
         });
 
-        const corrections: ArabicLeakCorrection[] = [];
+        const corrections: TranslationTextCorrection[] = [];
 
         for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
             const chunk = chunks[chunkIndex];
@@ -250,7 +251,7 @@ export const huggingFaceTranslationAssistProvider: TranslationAssistProvider = {
             });
 
             try {
-                const chunkResult = await requestChunkCorrections(chunk);
+                const chunkResult = await requestChunkCorrections(request, chunk);
                 corrections.push(...chunkResult.corrections);
 
                 console.info('[huggingface] assist chunk response', {
@@ -300,7 +301,7 @@ export const huggingFaceTranslationAssistProvider: TranslationAssistProvider = {
             model,
             patchMetadata: {
                 appliedAt: new Date().toISOString(),
-                source: { kind: 'llm', model, provider: 'huggingface', task: 'arabic_leak_correction' },
+                source: { kind: 'llm', model, provider: 'huggingface', task: request.task },
             },
             provider: 'huggingface',
             scope: request.scope,
@@ -308,3 +309,7 @@ export const huggingFaceTranslationAssistProvider: TranslationAssistProvider = {
         };
     },
 };
+const buildPromptForTask = (request: TranslationAssistRequest, excerpts: TranslationAssistRequest['excerpts']) =>
+    request.task === 'all_caps_correction'
+        ? buildAllCapsCorrectionPrompt(excerpts)
+        : buildArabicLeakCorrectionPrompt(excerpts);

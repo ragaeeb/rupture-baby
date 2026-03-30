@@ -546,20 +546,59 @@ const validateTranslationLengthsForResponse = (context: ValidationContext): Vali
 const validateAllCaps = (context: ValidationContext): ValidationError[] => {
     const errors: ValidationError[] = [];
     const runThreshold = context.config.allCapsWordRunThreshold;
-    const runPattern = new RegExp(`\\b(?:[A-Z]{2,}\\b\\s+){${runThreshold - 1}}[A-Z]{2,}\\b`, 'g');
-    for (const match of context.normalizedResponse.matchAll(runPattern)) {
-        const matchText = match[0];
-        const idx = match.index ?? 0;
-        errors.push(
-            makeErrorFromNormalized(
-                context,
-                'all_caps',
-                `ALL CAPS detected: "${matchText.trim()}"`,
-                matchText,
-                idx,
-                idx + matchText.length,
-            ),
-        );
+
+    const uppercaseTokenPattern = /\p{L}[\p{L}\p{M}\p{Nd}'’.-]*/gu;
+    const containsLowercasePattern = /\p{Ll}/u;
+    const containsUppercasePattern = /[\p{Lu}\p{Lt}]/u;
+
+    const isAllCapsToken = (token: string) =>
+        containsUppercasePattern.test(token) && !containsLowercasePattern.test(token);
+
+    for (const marker of context.markers) {
+        const text = context.normalizedResponse.slice(marker.translationStart, marker.translationEnd);
+        const tokens = [...text.matchAll(uppercaseTokenPattern)]
+            .map((match) => ({ end: (match.index ?? 0) + match[0].length, start: match.index ?? 0, text: match[0] }))
+            .filter((token) => isAllCapsToken(token.text));
+
+        if (tokens.length === 0) {
+            continue;
+        }
+
+        let runStartIndex = 0;
+        while (runStartIndex < tokens.length) {
+            let runEndIndex = runStartIndex;
+
+            while (runEndIndex + 1 < tokens.length) {
+                const gap = text.slice(tokens[runEndIndex].end, tokens[runEndIndex + 1].start);
+                if (!/^\s+$/.test(gap)) {
+                    break;
+                }
+                runEndIndex += 1;
+            }
+
+            const runLength = runEndIndex - runStartIndex + 1;
+            if (runLength >= runThreshold) {
+                const runStart = tokens[runStartIndex].start;
+                const runEnd = tokens[runEndIndex].end;
+                const matchText = text.slice(runStart, runEnd);
+                const normalizedStart = marker.translationStart + runStart;
+                const normalizedEnd = marker.translationStart + runEnd;
+
+                errors.push(
+                    makeErrorFromNormalized(
+                        context,
+                        'all_caps',
+                        `ALL CAPS detected: "${matchText.trim()}"`,
+                        matchText,
+                        normalizedStart,
+                        normalizedEnd,
+                        marker.id,
+                    ),
+                );
+            }
+
+            runStartIndex = runEndIndex + 1;
+        }
     }
     return errors;
 };

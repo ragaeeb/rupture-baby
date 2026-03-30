@@ -91,6 +91,7 @@ export const applyExcerptsToCompilation = (compilation: Compilation, excerpts: E
             setCompilationTarget(nextCompilation, locator, {
                 ...currentTarget,
                 lastUpdatedAt: excerpt.lastUpdatedAt,
+                meta: excerpt.meta ? { ...(currentTarget.meta ?? {}), ...excerpt.meta } : currentTarget.meta,
                 text: excerpt.text,
                 translator: excerpt.translator,
             });

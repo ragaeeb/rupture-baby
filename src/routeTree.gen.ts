@@ -17,6 +17,7 @@ import { Route as ApiMetaRouteImport } from './app/api/meta'
 import { Route as BrowseValidRouteImport } from './app/_browse/valid'
 import { Route as BrowseInvalidRouteImport } from './app/_browse/invalid'
 import { Route as BrowseDashboardRouteImport } from './app/_browse/dashboard'
+import { Route as BrowseAnalyticsRouteImport } from './app/_browse/analytics'
 import { Route as BrowseTranslationsRouteRouteImport } from './app/_browse/translations/route'
 import { Route as BrowseTranslationsIndexRouteImport } from './app/_browse/translations/index'
 import { Route as ApiTranslationsValidateRouteImport } from './app/api/translations/validate'
@@ -70,6 +71,11 @@ const BrowseInvalidRoute = BrowseInvalidRouteImport.update({
 const BrowseDashboardRoute = BrowseDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => BrowseRoute,
+} as any)
+const BrowseAnalyticsRoute = BrowseAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
   getParentRoute: () => BrowseRoute,
 } as any)
 const BrowseTranslationsRouteRoute = BrowseTranslationsRouteRouteImport.update({
@@ -156,6 +162,7 @@ export interface FileRoutesByFullPath {
   '/prompts': typeof PromptsRoute
   '/settings': typeof SettingsRoute
   '/translations': typeof BrowseTranslationsRouteRouteWithChildren
+  '/analytics': typeof BrowseAnalyticsRoute
   '/dashboard': typeof BrowseDashboardRoute
   '/invalid': typeof BrowseInvalidRoute
   '/valid': typeof BrowseValidRoute
@@ -178,6 +185,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/prompts': typeof PromptsRoute
   '/settings': typeof SettingsRoute
+  '/analytics': typeof BrowseAnalyticsRoute
   '/dashboard': typeof BrowseDashboardRoute
   '/invalid': typeof BrowseInvalidRoute
   '/valid': typeof BrowseValidRoute
@@ -204,6 +212,7 @@ export interface FileRoutesById {
   '/prompts': typeof PromptsRoute
   '/settings': typeof SettingsRoute
   '/_browse/translations': typeof BrowseTranslationsRouteRouteWithChildren
+  '/_browse/analytics': typeof BrowseAnalyticsRoute
   '/_browse/dashboard': typeof BrowseDashboardRoute
   '/_browse/invalid': typeof BrowseInvalidRoute
   '/_browse/valid': typeof BrowseValidRoute
@@ -231,6 +240,7 @@ export interface FileRouteTypes {
     | '/prompts'
     | '/settings'
     | '/translations'
+    | '/analytics'
     | '/dashboard'
     | '/invalid'
     | '/valid'
@@ -253,6 +263,7 @@ export interface FileRouteTypes {
   to:
     | '/prompts'
     | '/settings'
+    | '/analytics'
     | '/dashboard'
     | '/invalid'
     | '/valid'
@@ -278,6 +289,7 @@ export interface FileRouteTypes {
     | '/prompts'
     | '/settings'
     | '/_browse/translations'
+    | '/_browse/analytics'
     | '/_browse/dashboard'
     | '/_browse/invalid'
     | '/_browse/valid'
@@ -372,6 +384,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof BrowseDashboardRouteImport
+      parentRoute: typeof BrowseRoute
+    }
+    '/_browse/analytics': {
+      id: '/_browse/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof BrowseAnalyticsRouteImport
       parentRoute: typeof BrowseRoute
     }
     '/_browse/translations': {
@@ -500,6 +519,7 @@ const BrowseTranslationsRouteRouteWithChildren =
 
 interface BrowseRouteChildren {
   BrowseTranslationsRouteRoute: typeof BrowseTranslationsRouteRouteWithChildren
+  BrowseAnalyticsRoute: typeof BrowseAnalyticsRoute
   BrowseDashboardRoute: typeof BrowseDashboardRoute
   BrowseInvalidRoute: typeof BrowseInvalidRoute
   BrowseValidRoute: typeof BrowseValidRoute
@@ -508,6 +528,7 @@ interface BrowseRouteChildren {
 
 const BrowseRouteChildren: BrowseRouteChildren = {
   BrowseTranslationsRouteRoute: BrowseTranslationsRouteRouteWithChildren,
+  BrowseAnalyticsRoute: BrowseAnalyticsRoute,
   BrowseDashboardRoute: BrowseDashboardRoute,
   BrowseInvalidRoute: BrowseInvalidRoute,
   BrowseValidRoute: BrowseValidRoute,

@@ -36,6 +36,7 @@ describe('updateInvalidPendingEdits', () => {
                 },
             },
             {
+                allCapsHints: [],
                 arabic: 'نص عربي',
                 arabicLeakHints: ['النص'],
                 baseTranslation: 'the leaked text',

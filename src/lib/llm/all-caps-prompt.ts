@@ -1,0 +1,52 @@
+import type { TranslationAssistRequest } from '@/lib/shell-types';
+
+export const buildAllCapsCorrectionPrompt = (excerpts: TranslationAssistRequest['excerpts']) => {
+    const promptExcerpts = excerpts.map(({ id, matchHints, translation }) => ({
+        id,
+        matchHints: matchHints && matchHints.length > 0 ? matchHints : undefined,
+        translation,
+    }));
+
+    return [
+        'You are an expert English copy editor for translated Islamic texts.',
+        '',
+        'I will provide you with a JSON object containing translated passages that contain one or more ALL-CAPS spans. Your task is to normalize only those ALL-CAPS spans into natural English casing, while preserving their wording, meaning, punctuation, and position in the sentence.',
+        '',
+        'INPUT FORMAT:',
+        '{"excerpts": [{"id": "...", "translation": "...", "matchHints": ["..."]}, ...]}',
+        '',
+        'RULES:',
+        '1. Only correct text that is already written in ALL CAPS in the translation.',
+        '2. Do not change any non-ALL-CAPS text.',
+        '3. Do not rewrite the sentence, paraphrase the wording, or improve style outside the ALL-CAPS span.',
+        '4. Preserve the exact meaning and wording of the ALL-CAPS span. Change only its casing and any capitalization-dependent punctuation spacing needed to read naturally.',
+        '5. If "matchHints" are provided, treat them as the exact ALL-CAPS spans that must be corrected. Prefer those hints over searching for other spans.',
+        '6. When "matchHints" are provided, every returned "match" must exactly equal one of those hint strings. Do not invent new match strings.',
+        '7. Never split a single hint into multiple smaller corrections. If one hint needs correction, return exactly one correction object for that full hint.',
+        '8. Each "match" must exactly match the text to replace in the translation.',
+        '9. Each "replacement" must keep the same words in the same order, but with natural English casing appropriate to the surrounding sentence.',
+        '10. If the ALL-CAPS span is a quoted sentence or clause, preserve the quotation marks and punctuation exactly as they appear.',
+        '11. Do not translate Arabic, transliterations, or other content here. This task is casing correction only.',
+        '12. Do not emit duplicate correction objects with the same "match" and "replacement" for the same excerpt id.',
+        '13. You must return every input "id" exactly once in the output "results" object, even if that excerpt has no corrections.',
+        '14. Each "results" entry must be an array. Use an empty array when an excerpt has no ALL-CAPS corrections.',
+        '15. Your response must be only a raw JSON object. No markdown fences, no preamble, no commentary, nothing else.',
+        '',
+        'OUTPUT FORMAT:',
+        '{"results": {"P1": [{"match": "...", "replacement": "..."}], "P2": []}}',
+        '',
+        '- The top-level "results" object must contain every input excerpt id as a key.',
+        '- Each value in "results" must be an array of correction objects for that id.',
+        '- "match" is the exact ALL-CAPS text to find and replace in the translation.',
+        '- "replacement" is the same wording with corrected casing only.',
+        '- If "matchHints" are present, the set of returned "match" values must be a subset of those hint strings exactly as written.',
+        '',
+        'EXAMPLES:',
+        '- "AND THEY KNEW THAT THE BUYER OF IT WILL HAVE NO SHARE IN THE HEREAFTER" -> "And they knew that the buyer of it will have no share in the Hereafter"',
+        '- "WILL HAVE NO SHARE IN THE HEREAFTER" -> "will have no share in the Hereafter"',
+        '- "THEY BELIEVE IN AL-JIBT AND AL-ṬĀGHŪT" -> "They believe in al-jibt and al-ṭāghūt"',
+        '',
+        'INPUT:',
+        JSON.stringify({ excerpts: promptExcerpts }),
+    ].join('\n');
+};

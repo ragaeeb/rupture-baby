@@ -1,4 +1,5 @@
 import { createReadStream, renameSync, rmSync, statSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join, parse } from 'node:path';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
@@ -6,6 +7,7 @@ import { parser } from 'stream-json';
 import pick from 'stream-json/filters/pick.js';
 import streamValues from 'stream-json/streamers/stream-values.js';
 import { requireCompilationFilePath } from '@/lib/data-paths';
+import { readJsonFile, readTextFile, writeTextFile } from '@/lib/runtime-files';
 import type { Compilation } from '@/types/compilation';
 
 const PROMPTS_DIR = 'prompts';
@@ -54,27 +56,12 @@ const getBunFileStream = (filePath: string): Readable | null => {
     return Readable.fromWeb(bunRuntime.file(filePath).stream() as unknown as NodeReadableStream);
 };
 
-const getBunRuntime = () => {
-    const bunRuntime = (
+const getBunRuntime = () =>
+    (
         globalThis as unknown as {
-            Bun?: {
-                Glob: new (pattern: string) => { scan: (options: { cwd: string }) => AsyncIterable<string> };
-                file: (target: string) => {
-                    json: () => Promise<unknown>;
-                    text: () => Promise<string>;
-                    stream: () => ReadableStream<Uint8Array>;
-                };
-                write: (target: string, data: string) => Promise<number>;
-            };
+            Bun?: { Glob: new (pattern: string) => { scan: (options: { cwd: string }) => AsyncIterable<string> } };
         }
-    ).Bun;
-
-    if (!bunRuntime) {
-        throw new Error('Bun runtime is required.');
-    }
-
-    return bunRuntime;
-};
+    ).Bun ?? null;
 
 const getInputStream = (filePath: string): Readable => {
     const bunStream = getBunFileStream(filePath);
@@ -101,17 +88,27 @@ const loadTopLevelString = async (filePath: string, key: 'promptForTranslation' 
 };
 
 const loadPrompts = async () => {
-    const bunRuntime = getBunRuntime();
     const files: string[] = [];
-    for await (const filePath of new bunRuntime.Glob('*.md').scan({ cwd: PROMPTS_DIR })) {
-        files.push(filePath);
+
+    const bunRuntime = getBunRuntime();
+    if (bunRuntime?.Glob) {
+        for await (const filePath of new bunRuntime.Glob('*.md').scan({ cwd: PROMPTS_DIR })) {
+            files.push(filePath);
+        }
+    } else {
+        const entries = await readdir(PROMPTS_DIR, { withFileTypes: true });
+        for (const entry of entries) {
+            if (entry.isFile() && entry.name.endsWith('.md')) {
+                files.push(entry.name);
+            }
+        }
     }
 
     const result: PromptOption[] = [];
 
     for (const f of files) {
         const { name } = parse(f);
-        const content = await bunRuntime.file(join(PROMPTS_DIR, f)).text();
+        const content = await readTextFile(join(PROMPTS_DIR, f));
 
         result.push({
             content,
@@ -207,9 +204,8 @@ const resolvePromptSelection = async (state: CompilationPromptState): Promise<Pr
 };
 
 const writeCompilationPromptSelection = async (selectedPrompt: PromptSelection): Promise<void> => {
-    const bunRuntime = getBunRuntime();
     const filePath = requireCompilationFilePath();
-    const compilation = (await bunRuntime.file(filePath).json()) as Compilation;
+    const compilation = await readJsonFile<Compilation>(filePath);
 
     compilation.lastUpdatedAt = Date.now();
     compilation.promptForTranslation = selectedPrompt.content;
@@ -218,7 +214,7 @@ const writeCompilationPromptSelection = async (selectedPrompt: PromptSelection):
     const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
 
     try {
-        await bunRuntime.write(tempPath, `${JSON.stringify(compilation)}\n`);
+        await writeTextFile(tempPath, `${JSON.stringify(compilation)}\n`);
         renameSync(tempPath, filePath);
         const mtimeMs = statSync(filePath).mtimeMs;
         compilationPromptStateCache = {
@@ -268,4 +264,28 @@ export const setSelectedPromptById = async (promptId: string): Promise<PromptSel
     await writeOperation;
 
     return selectedPrompt;
+};
+
+export const setSelectedPrompt = async ({
+    content,
+    promptId,
+}: {
+    content: string;
+    promptId: string;
+}): Promise<PromptSelection | null> => {
+    const selectedPrompt = await getPromptOptionById(promptId);
+    if (!selectedPrompt) {
+        return null;
+    }
+
+    const nextPrompt = { ...selectedPrompt, content };
+
+    const writeOperation = promptWriteQueue.then(async () => {
+        await writeCompilationPromptSelection(nextPrompt);
+    });
+
+    promptWriteQueue = writeOperation.catch(() => undefined);
+    await writeOperation;
+
+    return nextPrompt;
 };

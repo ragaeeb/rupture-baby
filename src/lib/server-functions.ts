@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 
 import type {
+    AnalyticsPageData,
     CompilationPlaybackSimulationResponse,
     SaveCompilationPlaybackResponse,
     TranslationAssistRequest,
@@ -21,6 +22,12 @@ const validateTranslationFileInput = (value: unknown) => ({
 });
 
 const validatePromptInput = (value: unknown) => ({
+    content:
+        typeof (value as { content?: unknown })?.content === 'string'
+            ? (value as { content: string }).content
+            : (() => {
+                  throw new Error('Field "content" is required.');
+              })(),
     promptId: getNonEmptyString((value as { promptId?: unknown })?.promptId, 'promptId'),
 });
 
@@ -65,7 +72,7 @@ const isValidAssistRequest = (value: unknown): value is TranslationAssistRequest
             candidate.providerId === 'gemini' ||
             candidate.providerId === 'cloudflare') &&
         (candidate.scope === 'file' || candidate.scope === 'batch') &&
-        candidate.task === 'arabic_leak_correction' &&
+        (candidate.task === 'arabic_leak_correction' || candidate.task === 'all_caps_correction') &&
         Array.isArray(candidate.excerpts) &&
         candidate.excerpts.length > 0 &&
         candidate.excerpts.every(
@@ -86,7 +93,7 @@ const isValidAssistRequest = (value: unknown): value is TranslationAssistRequest
 const validateAssistInput = (value: unknown) => {
     if (!isValidAssistRequest(value)) {
         throw new Error(
-            'Invalid translation assist request. Expected { providerId?: "hf" | "gemini" | "cloudflare", scope: "file" | "batch", task: "arabic_leak_correction", excerpts: [{ filePath, id, arabic, translation }] }.',
+            'Invalid translation assist request. Expected { providerId?: "hf" | "gemini" | "cloudflare", scope: "file" | "batch", task: "arabic_leak_correction" | "all_caps_correction", excerpts: [{ filePath, id, arabic, translation }] }.',
         );
     }
 
@@ -97,6 +104,13 @@ export const fetchBrowseShellData = createServerFn({ method: 'GET' }).handler(as
     const { getBrowseShellData } = await import('@/lib/app-services');
     return getBrowseShellData();
 });
+
+export const fetchAnalyticsPageData = createServerFn({ method: 'GET' }).handler(
+    async (): Promise<AnalyticsPageData> => {
+        const { getAnalyticsPageData } = await import('@/lib/app-services');
+        return getAnalyticsPageData();
+    },
+);
 
 export const fetchPromptsPageData = createServerFn({ method: 'GET' }).handler(async () => {
     const { getPromptsPageData } = await import('@/lib/app-services');
@@ -131,7 +145,7 @@ export const savePromptSelection = createServerFn({ method: 'POST' })
     .inputValidator(validatePromptInput)
     .handler(async ({ data }) => {
         const { setPromptStateResponse } = await import('@/lib/app-services');
-        return setPromptStateResponse(data.promptId);
+        return setPromptStateResponse(data.promptId, data.content);
     });
 
 export const fetchTranslationFileData = createServerFn({ method: 'GET' })

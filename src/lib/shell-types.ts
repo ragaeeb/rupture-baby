@@ -1,3 +1,4 @@
+import type { ThinkingTimeRange } from '@/lib/reasoning-time';
 import type { RuptureHighlight, RupturePatchMetadata } from '@/lib/translation-patches';
 import type { Range } from '@/lib/validation/types';
 
@@ -46,6 +47,35 @@ export type DashboardStatsResponse = {
     translationStats?: TranslationStats;
 };
 
+export type CompilationAnalyticsResponse = {
+    createdAt: number | null;
+    duplicateTranslationAltCountDistribution: Array<{ altCount: number; label: string; segments: number }>;
+    duplicateTranslationSegmentCount: number;
+    duplicateTranslationsTotal: number;
+    lastUpdatedAt: number | null;
+    patchCount: number;
+    patchTypeDistribution: Array<{
+        count: number;
+        label: string;
+        type: 'all_caps_correction' | 'arabic_leak_correction';
+    }>;
+    timeline: Array<{
+        completionPercent: number;
+        cumulativeTranslated: number;
+        date: string;
+        excerpts: number;
+        headings: number;
+        label: string;
+        translated: number;
+    }>;
+    totalSegments: number;
+    translatedSegments: number;
+    translators: Array<{ count: number; id: string; label: string; percent: number }>;
+    untranslatedSegments: number;
+    uniqueTranslators: number;
+    workDurationSeconds: number | null;
+};
+
 export type CompilationPlaybackSimulationResponse = {
     appliedExcerptCount: number;
     blockedByCompilationDuplicates: boolean;
@@ -69,6 +99,7 @@ export type CompilationPlaybackSimulationResponse = {
 export type SaveCompilationPlaybackResponse = { appliedExcerptCount: number; outputPath: string };
 
 export type InvalidExcerptRow = {
+    allCapsHints: string[];
     arabic: string | null;
     arabicLeakHints: string[];
     baseTranslation: string | null;
@@ -85,11 +116,17 @@ export type InvalidExcerptRow = {
 export type InvalidExcerptsResponse = { invalidFileCount: number; rowCount: number; rows: InvalidExcerptRow[] };
 
 export type TranslationStats = {
-    files: Array<{ isValid: boolean; model: string | undefined; path: string }>;
+    files: Array<{
+        isValid: boolean;
+        model: string | undefined;
+        path: string;
+        reasoningDurationSec: number | undefined;
+    }>;
     invalidByModel: Record<string, number>;
     invalidFiles: number;
     modelBreakdown: Record<string, number>;
     patchesApplied: number;
+    thinkingTimeBreakdown: Record<Exclude<ThinkingTimeRange, 'all'>, number>;
     totalFiles: number;
     validFiles: number;
 };
@@ -117,6 +154,8 @@ export type BrowseShellData = {
     treeError: string | null;
 };
 
+export type AnalyticsPageData = { analytics: CompilationAnalyticsResponse | null; error: string | null };
+
 export type PromptsPageData = {
     error: string | null;
     meta: AppMetaResponse | null;
@@ -131,32 +170,36 @@ export type SettingsPageData = {
 
 export type DeleteTranslationResponse = { deletedPath: string; success: true };
 
-export type ArabicLeakCorrectionExcerpt = {
+export type TranslationCorrectionExcerpt = {
     arabic: string;
     filePath: string;
     id: string;
-    leakHints?: string[];
+    matchHints?: string[];
     translation: string;
 };
 
-export type ArabicLeakCorrection = { filePath: string; id: string; match: string; replacement: string };
+export type TranslationTextCorrection = { filePath: string; id: string; match: string; replacement: string };
+export type ArabicLeakCorrectionExcerpt = TranslationCorrectionExcerpt;
+export type ArabicLeakCorrection = TranslationTextCorrection;
+export type AllCapsCorrectionExcerpt = TranslationCorrectionExcerpt;
+export type AllCapsCorrection = TranslationTextCorrection;
 
 export type TranslationAssistScope = 'batch' | 'file';
-export type TranslationAssistTask = 'arabic_leak_correction';
+export type TranslationAssistTask = 'all_caps_correction' | 'arabic_leak_correction';
 
 export type TranslationAssistRequest = {
-    excerpts: ArabicLeakCorrectionExcerpt[];
+    excerpts: TranslationCorrectionExcerpt[];
     providerId?: AssistProviderId;
     scope: TranslationAssistScope;
-    task: 'arabic_leak_correction';
+    task: TranslationAssistTask;
 };
 
 export type TranslationAssistResponse = {
-    corrections: ArabicLeakCorrection[];
+    corrections: TranslationTextCorrection[];
     model: string;
     modelVersion?: string;
     patchMetadata: RupturePatchMetadata;
     provider: 'cloudflare' | 'google' | 'huggingface';
     scope: TranslationAssistScope;
-    task: 'arabic_leak_correction';
+    task: TranslationAssistTask;
 };

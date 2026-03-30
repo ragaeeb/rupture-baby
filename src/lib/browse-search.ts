@@ -1,10 +1,15 @@
+import type { ThinkingTimeRange } from '@/lib/reasoning-time';
 import { isFileViewMode } from '@/lib/translation-file-view-model';
 
 export type BrowseStatusFilter = 'invalid' | 'valid';
 
-export type RootSearch = Record<string, unknown> & { model?: string; status?: BrowseStatusFilter };
+export type RootSearch = Record<string, unknown> & {
+    model?: string;
+    status?: BrowseStatusFilter;
+    thinkingTime?: Exclude<ThinkingTimeRange, 'all'>;
+};
 
-export type TranslationRouteSearch = RootSearch & { view?: 'json' | 'normal' };
+export type TranslationRouteSearch = RootSearch & { view?: 'json' | 'normal' | 'normalized' };
 
 type SearchRecord = Record<string, unknown>;
 
@@ -23,6 +28,13 @@ export const parseBrowseSearch = (value: unknown): RootSearch => {
     const search = toSearchRecord(value) as RootSearch;
     const model = typeof search.model === 'string' && search.model.trim().length > 0 ? search.model.trim() : undefined;
     const status = search.status === 'valid' || search.status === 'invalid' ? search.status : undefined;
+    const thinkingTime =
+        search.thinkingTime === 'lt_10s' ||
+        search.thinkingTime === '10_to_30s' ||
+        search.thinkingTime === '30_to_60s' ||
+        search.thinkingTime === '1m_plus'
+            ? search.thinkingTime
+            : undefined;
 
     if (model) {
         search.model = model;
@@ -36,17 +48,27 @@ export const parseBrowseSearch = (value: unknown): RootSearch => {
         delete search.status;
     }
 
+    if (thinkingTime) {
+        search.thinkingTime = thinkingTime;
+    } else {
+        delete search.thinkingTime;
+    }
+
     return sanitizeSearch(search);
 };
 
 export const pickBrowseFilters = (value: unknown) => {
     const search = parseBrowseSearch(value);
-    return sanitizeSearch({ model: search.model, status: search.status });
+    return sanitizeSearch({ model: search.model, status: search.status, thinkingTime: search.thinkingTime });
 };
 
 export const mergeBrowseFilters = (
     value: unknown,
-    nextFilters: { model?: string | 'all'; status?: 'all' | BrowseStatusFilter },
+    nextFilters: {
+        model?: string | 'all';
+        status?: 'all' | BrowseStatusFilter;
+        thinkingTime?: 'all' | Exclude<ThinkingTimeRange, 'all'>;
+    },
 ) => {
     const search = parseBrowseSearch(value);
 
@@ -63,6 +85,14 @@ export const mergeBrowseFilters = (
             delete search.status;
         } else {
             search.status = nextFilters.status;
+        }
+    }
+
+    if (nextFilters.thinkingTime !== undefined) {
+        if (nextFilters.thinkingTime === 'all') {
+            delete search.thinkingTime;
+        } else {
+            search.thinkingTime = nextFilters.thinkingTime;
         }
     }
 

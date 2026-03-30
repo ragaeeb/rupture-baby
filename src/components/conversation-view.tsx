@@ -16,6 +16,10 @@ const formatTimestamp = (isoString: string): string => {
     return `${month} ${day}, ${year} ${hours12}:${minutes} ${ampm}`;
 };
 
+const formatReasoningDuration = (durationSeconds: number): string => {
+    return `${durationSeconds} ${durationSeconds === 1 ? 'second' : 'seconds'}`;
+};
+
 type ConversationViewProps = { conversation: CommonConversationExport };
 
 export const ConversationView = ({ conversation }: ConversationViewProps) => {
@@ -63,7 +67,11 @@ export const ConversationView = ({ conversation }: ConversationViewProps) => {
                 </AccordionItem>
                 {conversation.reasoning.length > 0 && (
                     <AccordionItem value="reasoning">
-                        <AccordionTrigger>Reasoning ({conversation.reasoning.length} steps)</AccordionTrigger>
+                        <AccordionTrigger>
+                            {typeof conversation.reasoning_duration_sec === 'number'
+                                ? `Reasoning (${conversation.reasoning.length} steps) [${formatReasoningDuration(conversation.reasoning_duration_sec)}]`
+                                : `Reasoning (${conversation.reasoning.length} steps)`}
+                        </AccordionTrigger>
                         <AccordionContent>
                             <div className="rounded-lg border bg-card p-4">
                                 <ol className="list-decimal space-y-2 pl-4">

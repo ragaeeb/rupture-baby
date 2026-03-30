@@ -1,7 +1,7 @@
 'use client';
 
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { ChevronRight, File, Folder, LayoutDashboard, Settings2, X } from 'lucide-react';
+import { BarChart3, ChevronRight, File, Folder, LayoutDashboard, Settings2, X } from 'lucide-react';
 import type * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -17,7 +17,8 @@ import {
     SidebarMenuSub,
     SidebarRail,
 } from '@/components/ui/sidebar';
-import { mergeBrowseFilters, pickBrowseFilters } from '@/lib/browse-search';
+import { mergeBrowseFilters, pickBrowseFilters, sanitizeSearch } from '@/lib/browse-search';
+import { THINKING_TIME_BUCKETS } from '@/lib/reasoning-time';
 import type { DashboardStatsResponse, TranslationTreeNode } from '@/lib/shell-types';
 import { filterTranslationTreeEntries } from '@/lib/translation-tree-filter';
 
@@ -48,16 +49,32 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
     const dashboardPath: '/' | '/dashboard' = pathname === '/dashboard' ? '/dashboard' : '/';
     const isDashboardPath = pathname === '/' || pathname === '/dashboard';
     const filterSearch = pickBrowseFilters(search);
+    const translationLinkSearch = sanitizeSearch({
+        ...filterSearch,
+        view: pathname.startsWith('/translations') && typeof search.view === 'string' ? search.view : undefined,
+    });
     const modelFilter = typeof search.model === 'string' ? search.model : 'all';
     const statusFilter = search.status === 'valid' || search.status === 'invalid' ? search.status : 'all';
-    const hasActiveFilters = modelFilter !== 'all' || statusFilter !== 'all';
+    const thinkingTimeFilter =
+        search.thinkingTime === 'lt_10s' ||
+        search.thinkingTime === '10_to_30s' ||
+        search.thinkingTime === '30_to_60s' ||
+        search.thinkingTime === '1m_plus'
+            ? search.thinkingTime
+            : 'all';
+    const hasActiveFilters = modelFilter !== 'all' || statusFilter !== 'all' || thinkingTimeFilter !== 'all';
     const models = translationStats ? Object.keys(translationStats.modelBreakdown) : [];
     const filteredEntries = filterTranslationTreeEntries(entries, translationStats, {
         model: modelFilter,
         status: statusFilter,
+        thinkingTime: thinkingTimeFilter,
     });
 
-    const setFilter = (newFilter: { model?: string | 'all'; status?: 'all' | 'valid' | 'invalid' }) => {
+    const setFilter = (newFilter: {
+        model?: string | 'all';
+        status?: 'all' | 'valid' | 'invalid';
+        thinkingTime?: 'all' | '10_to_30s' | '1m_plus' | '30_to_60s' | 'lt_10s';
+    }) => {
         const currentPath = pathname.startsWith('/translations') ? pathname : dashboardPath;
         const nextSearch = mergeBrowseFilters(search, newFilter);
 
@@ -76,6 +93,14 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
                                     <Link resetScroll={false} search={filterSearch} to={dashboardPath}>
                                         <LayoutDashboard />
                                         <span className="min-w-0 truncate">Dashboard</span>
+                                    </Link>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                            <SidebarMenuItem>
+                                <SidebarMenuButton asChild isActive={pathname === '/analytics'} tooltip="Analytics">
+                                    <Link resetScroll={false} search={filterSearch} to="/analytics">
+                                        <BarChart3 />
+                                        <span className="min-w-0 truncate">Analytics</span>
                                     </Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
@@ -107,7 +132,7 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
                                 <Button
                                     aria-label="Clear filters"
                                     className="size-7"
-                                    onClick={() => setFilter({ model: 'all', status: 'all' })}
+                                    onClick={() => setFilter({ model: 'all', status: 'all', thinkingTime: 'all' })}
                                     size="icon"
                                     variant="ghost"
                                 >
@@ -153,6 +178,34 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
                                         <option value="invalid">Invalid</option>
                                     </select>
                                 </div>
+
+                                <div className="space-y-2">
+                                    <p className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+                                        Thinking Time
+                                    </p>
+                                    <select
+                                        aria-label="Filter by thinking time"
+                                        className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                        value={thinkingTimeFilter}
+                                        onChange={(event) =>
+                                            setFilter({
+                                                thinkingTime: event.target.value as
+                                                    | 'all'
+                                                    | '10_to_30s'
+                                                    | '1m_plus'
+                                                    | '30_to_60s'
+                                                    | 'lt_10s',
+                                            })
+                                        }
+                                    >
+                                        <option value="all">All</option>
+                                        {THINKING_TIME_BUCKETS.map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                                {option.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
                         </SidebarGroupContent>
                     </SidebarGroup>
@@ -182,7 +235,7 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
                                                 <Tree
                                                     item={item}
                                                     key={item.relativePath || item.name}
-                                                    linkSearch={filterSearch}
+                                                    linkSearch={translationLinkSearch}
                                                     selectedFilePath={selectedFilePath}
                                                 />
                                             ))}

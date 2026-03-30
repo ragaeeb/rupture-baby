@@ -9,6 +9,7 @@ type EditableTranslationContentProps = {
     ariaLabel: string;
     buttonClassName: string;
     editable: boolean;
+    emptyDisplayValue?: string;
     isEditing: boolean;
     onCommit: (nextText: string) => void;
     onStartEditing: () => void;
@@ -24,6 +25,7 @@ export const EditableTranslationContent = ({
     ariaLabel,
     buttonClassName,
     editable,
+    emptyDisplayValue,
     isEditing,
     onCommit,
     onStartEditing,
@@ -34,14 +36,17 @@ export const EditableTranslationContent = ({
     textareaClassName,
     validationHighlightRanges = [],
 }: EditableTranslationContentProps) => {
-    const displayValue = (
-        <TranslationTextContent
-            patchHighlights={patchHighlights}
-            text={text}
-            textClassName=""
-            validationHighlightRanges={validationHighlightRanges}
-        />
-    );
+    const displayValue =
+        text.length === 0 && emptyDisplayValue ? (
+            <span className="font-medium italic">{emptyDisplayValue}</span>
+        ) : (
+            <TranslationTextContent
+                patchHighlights={patchHighlights}
+                text={text}
+                textClassName=""
+                validationHighlightRanges={validationHighlightRanges}
+            />
+        );
 
     return (
         <ClickToEditText

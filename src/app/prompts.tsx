@@ -53,7 +53,7 @@ function PromptsPage() {
             setSuccess(false);
             setError(null);
 
-            await savePromptSelection({ data: { promptId: selectedPromptId } });
+            await savePromptSelection({ data: { content: selectedPromptContent, promptId: selectedPromptId } });
             await router.invalidate({ sync: true });
             setSuccess(true);
             setTimeout(() => setSuccess(false), 3000);
@@ -129,16 +129,20 @@ function PromptsPage() {
                     <div className="rounded-xl border bg-card p-4">
                         <h2 className="font-semibold text-lg">Prompt Content</h2>
                         <p className="mt-1 text-muted-foreground text-sm">
-                            Preview of the selected prompt (master + specialized prompt combined).
+                            The selected prompt template is prefilled here, but you can edit it before saving.
                         </p>
 
                         <div className="mt-4">
                             {!loaderData.promptState ? (
                                 <p className="text-muted-foreground text-sm">Loading prompt content...</p>
                             ) : (
-                                <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-4 text-xs leading-5 [overflow-wrap:anywhere]">
-                                    {selectedPromptContent || 'No prompt selected.'}
-                                </pre>
+                                <textarea
+                                    className="min-h-[60vh] w-full rounded-md border border-input bg-background p-4 font-mono text-xs leading-5 ring-offset-background transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                    disabled={isSaving}
+                                    onChange={(event) => setSelectedPromptContent(event.target.value)}
+                                    placeholder="No prompt selected."
+                                    value={selectedPromptContent}
+                                />
                             )}
                         </div>
                     </div>

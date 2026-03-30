@@ -3,10 +3,11 @@ import '@tanstack/react-start/server-only';
 import {
     buildArabicLeakCorrectionJsonSchema,
     buildArabicLeakCorrectionPrompt,
-    parseArabicLeakCorrectionResponse,
+    parseTextCorrectionResponse,
 } from '@/lib/llm/arabic-leak-prompt';
+import { buildAllCapsCorrectionPrompt } from '@/lib/llm/all-caps-prompt';
 import type { TranslationAssistProvider } from '@/lib/llm/types';
-import type { ArabicLeakCorrection, TranslationAssistRequest } from '@/lib/shell-types';
+import type { TranslationAssistRequest, TranslationTextCorrection } from '@/lib/shell-types';
 
 const DEFAULT_MAX_EXCERPTS_PER_REQUEST = 10;
 const INTER_BATCH_DELAY_MS = { max: 900, min: 300 } as const;
@@ -62,7 +63,7 @@ const getInterBatchDelayMs = () =>
 
 const getMissingExcerpts = (
     requestedExcerpts: TranslationAssistRequest['excerpts'],
-    corrections: ArabicLeakCorrection[],
+    corrections: TranslationTextCorrection[],
 ) => {
     const correctedIds = new Set(corrections.map((correction) => correction.id));
     return requestedExcerpts.filter((excerpt) => !correctedIds.has(excerpt.id));
@@ -142,7 +143,7 @@ const serializeError = (error: unknown) => {
     };
 };
 
-const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts']) => {
+const requestChunkCorrections = async (request: TranslationAssistRequest, chunk: TranslationAssistRequest['excerpts']) => {
     const excerptById = new Map<string, TranslationAssistRequest['excerpts'][number]>();
 
     for (const excerpt of chunk) {
@@ -153,13 +154,16 @@ const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts
         excerptById.set(excerpt.id, excerpt);
     }
 
-    const outboundExcerpts = chunk.map(({ arabic, id, leakHints, translation }) => ({
+    const outboundExcerpts = chunk.map(({ arabic, id, matchHints, translation }) => ({
         arabic,
         id,
-        leakHints: leakHints && leakHints.length > 0 ? leakHints : undefined,
+        matchHints: matchHints && matchHints.length > 0 ? matchHints : undefined,
         translation,
     }));
-    const prompt = buildArabicLeakCorrectionPrompt(chunk);
+    const prompt =
+        request.task === 'all_caps_correction'
+            ? buildAllCapsCorrectionPrompt(chunk)
+            : buildArabicLeakCorrectionPrompt(chunk);
     const responseSchema = buildArabicLeakCorrectionJsonSchema(chunk);
 
     console.info('[cloudflare] outbound request payload', {
@@ -228,7 +232,7 @@ const requestChunkCorrections = async (chunk: TranslationAssistRequest['excerpts
         preview: getResponsePreview(responseText, 4000),
     });
 
-    const corrections = parseArabicLeakCorrectionResponse(responseText).map((correction) => {
+    const corrections = parseTextCorrectionResponse(responseText).map((correction) => {
         const excerpt = excerptById.get(correction.id);
         if (!excerpt) {
             throw new Error(`Cloudflare returned a correction for unknown excerpt id "${correction.id}".`);
@@ -267,7 +271,7 @@ export const cloudflareTranslationAssistProvider: TranslationAssistProvider = {
             task: request.task,
         });
 
-        const corrections: ArabicLeakCorrection[] = [];
+        const corrections: TranslationTextCorrection[] = [];
 
         for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
             const chunk = chunks[chunkIndex];
@@ -281,7 +285,7 @@ export const cloudflareTranslationAssistProvider: TranslationAssistProvider = {
             });
 
             try {
-                const chunkCorrections = await requestChunkCorrections(chunk);
+                const chunkCorrections = await requestChunkCorrections(request, chunk);
                 const mergedChunkCorrections = [...chunkCorrections];
                 const missingExcerpts = getMissingExcerpts(chunk, chunkCorrections);
 
@@ -297,7 +301,7 @@ export const cloudflareTranslationAssistProvider: TranslationAssistProvider = {
 
                     for (let missingIndex = 0; missingIndex < missingExcerpts.length; missingIndex += 1) {
                         const missingExcerpt = missingExcerpts[missingIndex];
-                        const retryCorrections = await requestChunkCorrections([missingExcerpt]);
+                        const retryCorrections = await requestChunkCorrections(request, [missingExcerpt]);
                         mergedChunkCorrections.push(...retryCorrections);
 
                         console.info('[cloudflare] assist single-excerpt retry response', {
@@ -360,7 +364,7 @@ export const cloudflareTranslationAssistProvider: TranslationAssistProvider = {
             model: MODEL,
             patchMetadata: {
                 appliedAt: new Date().toISOString(),
-                source: { kind: 'llm', model: MODEL, provider: 'cloudflare', task: 'arabic_leak_correction' },
+                source: { kind: 'llm', model: MODEL, provider: 'cloudflare', task: request.task },
             },
             provider: 'cloudflare',
             scope: request.scope,

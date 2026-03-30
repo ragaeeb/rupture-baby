@@ -3,7 +3,9 @@ import { Link } from '@tanstack/react-router';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { THINKING_TIME_BUCKETS } from '@/lib/reasoning-time';
 import type { DashboardStatsResponse } from '@/lib/shell-types';
+import { formatUnixSecondsToUtcString } from '@/lib/time';
 
 type DashboardPageProps = { stats: DashboardStatsResponse | null; statsError: string | null };
 
@@ -13,14 +15,6 @@ const formatCheckedAt = (checkedAt: string | undefined) => {
     }
 
     return checkedAt.replace('T', ' ').replace('Z', ' UTC');
-};
-
-const formatIsoFromTimestamp = (value: number | null | undefined) => {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return '...';
-    }
-
-    return new Date(value * 1000).toISOString().replace('T', ' ').replace('Z', ' UTC');
 };
 
 const formatWorkDuration = (durationSeconds: number | null | undefined) => {
@@ -94,11 +88,11 @@ const CompilationStatsCard = ({ compilationStats }: CompilationStatsCardProps) =
         <div className="mt-4 grid gap-4 md:grid-cols-3">
             <div className="text-sm">
                 <p className="text-muted-foreground text-xs">Created</p>
-                <p className="mt-1 break-all">{formatIsoFromTimestamp(compilationStats?.createdAt)}</p>
+                <p className="mt-1 break-all">{formatUnixSecondsToUtcString(compilationStats?.createdAt)}</p>
             </div>
             <div className="text-sm">
                 <p className="text-muted-foreground text-xs">Last Updated</p>
-                <p className="mt-1 break-all">{formatIsoFromTimestamp(compilationStats?.lastUpdatedAt)}</p>
+                <p className="mt-1 break-all">{formatUnixSecondsToUtcString(compilationStats?.lastUpdatedAt)}</p>
             </div>
             <div className="text-sm">
                 <p className="text-muted-foreground text-xs">Elapsed Work Span</p>
@@ -225,6 +219,17 @@ const DashboardPage = ({ stats, statsError }: DashboardPageProps) => {
                                 <p className="text-muted-foreground text-xs">Patches Applied</p>
                                 <p className="font-semibold text-2xl">{translationStats?.patchesApplied ?? '...'}</p>
                             </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-4">
+                            {THINKING_TIME_BUCKETS.map((bucket) => (
+                                <div key={bucket.value}>
+                                    <p className="text-muted-foreground text-xs">{bucket.label}</p>
+                                    <p className="font-semibold text-lg">
+                                        {translationStats?.thinkingTimeBreakdown[bucket.value] ?? '...'}
+                                    </p>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>

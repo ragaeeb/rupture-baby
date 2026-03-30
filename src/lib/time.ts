@@ -8,6 +8,16 @@ export const mapDateToSeconds = (date: Date) => mapUnixTimestampToSeconds(date.g
  */
 export const nowInSeconds = () => mapUnixTimestampToSeconds(Date.now());
 
+export const formatUnixSecondsToUtcString = (value: number | null | undefined) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return '...';
+    }
+
+    return `${new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(
+        new Date(value * 1000),
+    )} UTC`;
+};
+
 /**
  * Rounds a number to a specified number of decimal places
  * @param value - The number to round

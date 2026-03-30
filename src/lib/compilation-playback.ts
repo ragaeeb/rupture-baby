@@ -12,9 +12,11 @@ import {
 } from '@/lib/playback';
 import { readJsonFile, readTextFile, writeTextFile } from '@/lib/runtime-files';
 import type { CompilationPlaybackSimulationResponse, SaveCompilationPlaybackResponse } from '@/lib/shell-types';
+import { mapDateToSeconds, nowInSeconds } from '@/lib/time';
+import { isRupturePatchMetadata, type RupturePatchMetadataMap } from '@/lib/translation-patches';
 import { analyzeTranslationValidity, isTranslationValidityAnalysisInvalid } from '@/lib/translation-validity';
 import { collectTranslationFilePaths } from '@/lib/translations-browser';
-import type { Compilation, Excerpt, Heading } from '@/types/compilation';
+import type { Compilation, Excerpt, Heading, PatchedTranslationMetadata } from '@/types/compilation';
 import { type CompilationStats, summarizeCompilationStats } from './compilation-stats';
 
 type CountBucket = { total: number; translated: number; untranslated: number };
@@ -119,11 +121,38 @@ const registerPlaybackExcerpt = ({
     return 'playable';
 };
 
+const mapPatchMetadataToCompilationPatched = (patchMetadata: unknown): PatchedTranslationMetadata | undefined => {
+    if (!isRupturePatchMetadata(patchMetadata)) {
+        return undefined;
+    }
+
+    const parsedAppliedAt = new Date(patchMetadata.appliedAt);
+    if (Number.isNaN(parsedAppliedAt.getTime())) {
+        return undefined;
+    }
+
+    return {
+        appliedAt: mapDateToSeconds(parsedAppliedAt),
+        model: patchMetadata.source.modelVersion
+            ? `${patchMetadata.source.model} (${patchMetadata.source.modelVersion})`
+            : patchMetadata.source.model,
+        type: patchMetadata.source.task,
+    };
+};
+
+const getExcerptPatchMetadata = (patchMetadataById: RupturePatchMetadataMap | undefined, excerptId: string) =>
+    mapPatchMetadataToCompilationPatched(patchMetadataById?.[excerptId]);
+
 const getPlaybackOutputPath = (compilationFilePath: string) => {
     const parsedPath = path.parse(compilationFilePath);
     const timestamp = new Date().toISOString().replaceAll(':', '-');
     return path.join(parsedPath.dir, `${parsedPath.name}_new_${timestamp}${parsedPath.ext || '.json'}`);
 };
+
+export const finalizeSavedCompilation = (compilation: Compilation, savedAt: number = nowInSeconds()): Compilation => ({
+    ...compilation,
+    lastUpdatedAt: savedAt,
+});
 
 export const simulateCompilationPlayback = async (): Promise<CompilationPlaybackSimulationResult> => {
     const compilationFilePath = requireCompilationFilePath();
@@ -156,12 +185,16 @@ export const simulateCompilationPlayback = async (): Promise<CompilationPlayback
         validFilePaths.push(filePath);
         const excerpts = analysis.validation.excerpts;
         totalCandidateExcerptCount += excerpts.length;
+        const patchMetadataById = analysis.parsed.__rupture?.patchMetadata;
 
         for (const excerpt of excerpts) {
+            const patchedMetadata = getExcerptPatchMetadata(patchMetadataById, excerpt.id);
             const result = registerPlaybackExcerpt({
                 compilationExcerptIds,
                 duplicateExcerptIds,
-                excerpt,
+                excerpt: patchedMetadata
+                    ? { ...excerpt, meta: { ...(excerpt.meta ?? {}), patched: patchedMetadata } }
+                    : excerpt,
                 filePath,
                 fullyTranslatedExcerptIds,
                 playableExcerpts,
@@ -213,8 +246,9 @@ export const saveCompilationPlayback = async (): Promise<SaveCompilationPlayback
 
     const outputPath = getPlaybackOutputPath(response.compilationFilePath);
     const tempPath = `${outputPath}.${randomUUID()}.tmp`;
+    const savedCompilation = finalizeSavedCompilation(updatedCompilation);
     await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeTextFile(tempPath, `${JSON.stringify(updatedCompilation, null, 2)}\n`);
+    await writeTextFile(tempPath, `${JSON.stringify(savedCompilation, null, 2)}\n`);
     await rename(tempPath, outputPath);
 
     return { appliedExcerptCount: response.appliedExcerptCount, outputPath };
