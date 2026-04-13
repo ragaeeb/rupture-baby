@@ -1,5 +1,5 @@
 import { getThinkingTimeRange, type ThinkingTimeRange } from '@/lib/reasoning-time';
-import type { DashboardStatsResponse, TranslationTreeNode } from '@/lib/shell-types';
+import type { TranslationStats, TranslationTreeNode } from '@/lib/shell-types';
 
 export type TranslationTreeFilter = {
     model: string | 'all';
@@ -43,7 +43,7 @@ const filterTreeNode = (
 
 export const filterTranslationTreeEntries = (
     entries: TranslationTreeNode[],
-    translationStats: DashboardStatsResponse['translationStats'] | undefined,
+    translationStats: TranslationStats | null | undefined,
     filter: TranslationTreeFilter,
 ): TranslationTreeNode[] => {
     const hasActiveFilters = filter.model !== 'all' || filter.status !== 'all' || filter.thinkingTime !== 'all';

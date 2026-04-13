@@ -75,7 +75,7 @@ export const applyArabicLeakCorrectionsToInvalidRows = (
     rows: InvalidExcerptRow[],
     currentEdits: InvalidPendingEditMap,
     corrections: Array<{ filePath: string; id: string; match: string; replacement: string }>,
-    metadata: RupturePatchMetadata,
+    metadata?: RupturePatchMetadata,
 ) => {
     const rowsByKey = new Map(
         rows
@@ -133,7 +133,7 @@ export const applyArabicLeakCorrectionsToInvalidRows = (
         nextEdits[key] = {
             excerptId: row.id,
             filePath: row.filePath,
-            metadata: { ...metadata, highlights: replacementResult.replacementHighlights },
+            metadata: metadata ? { ...metadata, highlights: replacementResult.replacementHighlights } : undefined,
             nextTranslation: replacementResult.nextText,
             patch,
         };
@@ -147,7 +147,7 @@ export const applyAllCapsCorrectionsToInvalidRows = (
     rows: InvalidExcerptRow[],
     currentEdits: InvalidPendingEditMap,
     corrections: AllCapsCorrection[],
-    metadata: RupturePatchMetadata,
+    metadata?: RupturePatchMetadata,
 ) => {
     const rowsByKey = new Map(
         rows
@@ -199,7 +199,7 @@ export const applyAllCapsCorrectionsToInvalidRows = (
         nextEdits[key] = {
             excerptId: row.id,
             filePath: row.filePath,
-            metadata: { ...metadata, highlights: replacementResult.replacementHighlights },
+            metadata: metadata ? { ...metadata, highlights: replacementResult.replacementHighlights } : undefined,
             nextTranslation: replacementResult.nextText,
             patch,
         };

@@ -38,7 +38,7 @@ export type CommonConversationExport = {
     /** Optional Blackiya metadata for legacy exports */
     __blackiya?: Record<string, unknown>;
     /** Optional Rupture metadata for file-level patches */
-    __rupture?: { patchMetadata?: RupturePatchMetadataMap; patches?: RupturePatches };
+    __rupture?: { patchMetadata?: RupturePatchMetadataMap; patches?: RupturePatches; skip?: string[] };
 };
 
 /**

@@ -1,6 +1,6 @@
 'use client';
 
-import { Wrench } from 'lucide-react';
+import { Ban, Wrench } from 'lucide-react';
 import { useState } from 'react';
 
 import { EditableTranslationContent } from '@/components/translations/editable-translation-content';
@@ -9,6 +9,9 @@ import type { TranslationRowData, TranslationTableModel } from '@/lib/translatio
 const getRowClassName = (row: TranslationRowData) => {
     if (row.validationMessages.length > 0) {
         return 'border-b bg-destructive/5 shadow-[inset_0_0_0_1px_hsl(var(--destructive)/0.35)] last:border-b-0';
+    }
+    if (row.isSkipped) {
+        return 'border-b bg-muted/30 opacity-75 last:border-b-0';
     }
     if (row.isDirty) {
         return 'border-b bg-amber-50 shadow-[inset_0_0_0_1px_hsl(var(--amber-400)/0.45)] last:border-b-0';
@@ -22,6 +25,9 @@ const getRowClassName = (row: TranslationRowData) => {
 const getRowIdClassName = (row: TranslationRowData) => {
     if (row.validationMessages.length > 0) {
         return 'px-4 py-3 align-top font-mono font-semibold text-[10px] text-destructive';
+    }
+    if (row.isSkipped) {
+        return 'px-4 py-3 align-top font-mono font-semibold text-[10px] text-muted-foreground';
     }
     if (row.isDirty) {
         return 'px-4 py-3 align-top font-mono font-semibold text-[10px] text-amber-900';
@@ -37,6 +43,12 @@ const getTranslationControlClassName = (row: TranslationRowData, mode: 'button' 
         return mode === 'button'
             ? 'block w-full rounded border border-destructive/30 bg-background px-3 py-2 text-left font-medium text-destructive shadow-sm transition-colors hover:bg-destructive/5'
             : 'block w-full resize-none overflow-hidden rounded border border-destructive/30 bg-background px-3 py-2 font-medium text-[10px] text-destructive leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-destructive/40';
+    }
+
+    if (row.isSkipped) {
+        return mode === 'button'
+            ? 'block w-full rounded border border-muted bg-muted/20 px-3 py-2 text-left text-muted-foreground shadow-sm transition-colors hover:bg-muted/30'
+            : 'block w-full resize-none overflow-hidden rounded border border-muted bg-muted/10 px-3 py-2 text-[10px] text-muted-foreground leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30';
     }
 
     if (row.isDirty) {
@@ -77,20 +89,50 @@ const getTranslationTextClassName = (row: TranslationRowData) =>
 
 const TranslationRow = ({
     isEditing,
+    isSelected,
     onDraftChange,
     onStartEditing,
     onStopEditing,
+    onToggleSelect,
+    onToggleSkip,
+    skipActionDisabled,
     row,
 }: {
     isEditing: boolean;
+    isSelected: boolean;
     onDraftChange: (id: string, originalText: string, nextText: string) => void;
     onStartEditing: (id: string) => void;
     onStopEditing: () => void;
+    onToggleSelect: (id: string, checked: boolean) => void;
+    onToggleSkip: (id: string, skipped: boolean) => void;
+    skipActionDisabled: boolean;
     row: TranslationRowData;
 }) => {
     return (
         <tr className={getRowClassName(row)}>
-            <td className={getRowIdClassName(row)}>{row.id}</td>
+            <td className="px-2 py-3 align-top">
+                <input
+                    aria-label={`Select ${row.id}`}
+                    checked={isSelected}
+                    className="size-3.5 accent-primary"
+                    onChange={(event) => onToggleSelect(row.id, event.target.checked)}
+                    type="checkbox"
+                />
+            </td>
+            <td className={getRowIdClassName(row)}>
+                <div className="flex flex-col items-start gap-2">
+                    <span>{row.id}</span>
+                    <button
+                        aria-label={row.isSkipped ? `Unskip ${row.id}` : `Skip ${row.id}`}
+                        className="inline-flex size-6 items-center justify-center rounded border border-input bg-background text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                        disabled={skipActionDisabled}
+                        onClick={() => onToggleSkip(row.id, !row.isSkipped)}
+                        type="button"
+                    >
+                        <Ban className="size-3" />
+                    </button>
+                </div>
+            </td>
             <td className="whitespace-pre-wrap px-4 py-3 align-top text-sm" dir="rtl">
                 {row.arabic}
             </td>
@@ -114,6 +156,13 @@ const TranslationRow = ({
                     textareaClassName={`${getTranslationControlClassName(row, 'textarea')} ${row.hasPatch ? 'pr-8' : ''}`}
                     validationHighlightRanges={row.highlightRanges}
                 />
+                {row.isSkipped ? (
+                    <div className="mt-2 rounded border border-muted bg-muted/20 px-3 py-2">
+                        <p className="font-medium text-[10px] text-muted-foreground">
+                            This excerpt is skipped. It will be omitted from playback and validation.
+                        </p>
+                    </div>
+                ) : null}
                 {row.validationMessages.length > 0 ? (
                     <div className={getValidationMessagesClassName(row)}>
                         {row.validationMessages.map((message) => (
@@ -131,17 +180,31 @@ const TranslationRow = ({
 type TranslationTableViewProps = {
     arabicLeakFixError: string | null;
     isFixingArabicLeaks: boolean;
+    isUpdatingSkip: boolean;
     model: TranslationTableModel | null;
     onAutoFixArabicLeaks: () => void;
+    onBulkSetSkip: (skipped: boolean) => void;
     onDraftChange: (id: string, originalText: string, nextText: string) => void;
+    onToggleSelectAll: (checked: boolean) => void;
+    onToggleSelectRow: (id: string, checked: boolean) => void;
+    onToggleSkip: (id: string, skipped: boolean) => void;
+    selectedRowIds: string[];
+    skippingRowId: string | null;
 };
 
 export const TranslationTableView = ({
     arabicLeakFixError,
     isFixingArabicLeaks,
+    isUpdatingSkip,
     model,
     onAutoFixArabicLeaks,
+    onBulkSetSkip,
     onDraftChange,
+    onToggleSelectAll,
+    onToggleSelectRow,
+    onToggleSkip,
+    selectedRowIds,
+    skippingRowId,
 }: TranslationTableViewProps) => {
     const [editingRowId, setEditingRowId] = useState<string | null>(null);
 
@@ -153,12 +216,51 @@ export const TranslationTableView = ({
         );
     }
 
+    const allRowsSelected = model.rows.length > 0 && selectedRowIds.length === model.rows.length;
+    const someRowsSelected = selectedRowIds.length > 0 && selectedRowIds.length < model.rows.length;
+    const selectedRows = model.rows.filter((row) => selectedRowIds.includes(row.id));
+    const canSkipSelected = selectedRows.some((row) => !row.isSkipped);
+    const canUnskipSelected = selectedRows.some((row) => row.isSkipped);
+
     return (
         <div className="flex h-full min-h-0 flex-col gap-4">
+            {selectedRowIds.length > 0 ? (
+                <div className="flex items-center justify-between rounded-md border bg-muted/20 px-4 py-3 text-sm">
+                    <p className="text-muted-foreground">{selectedRowIds.length} rows selected.</p>
+                    <div className="flex items-center gap-2">
+                        <button
+                            className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 font-medium text-xs transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={!canSkipSelected || isUpdatingSkip}
+                            onClick={() => onBulkSetSkip(true)}
+                            type="button"
+                        >
+                            Skip selected
+                        </button>
+                        <button
+                            className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 font-medium text-xs transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={!canUnskipSelected || isUpdatingSkip}
+                            onClick={() => onBulkSetSkip(false)}
+                            type="button"
+                        >
+                            Unskip selected
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+
             {model.hasPatches ? (
                 <div className="rounded-md border border-amber-400/30 bg-amber-50 p-4 text-sm">
                     <p className="font-medium text-amber-950">Patched excerpts are applied in this file.</p>
                     <p className="mt-1 text-muted-foreground">Patched rows: {model.patchedRowCount}</p>
+                </div>
+            ) : null}
+
+            {model.isSourceAlignedToResponse ? (
+                <div className="rounded-md border border-amber-400/30 bg-amber-50 p-4 text-sm">
+                    <p className="font-medium text-amber-950">The source block was aligned to the final response block.</p>
+                    <p className="mt-1 text-muted-foreground">
+                        This usually means the prompt included example excerpts before the real translation section.
+                    </p>
                 </div>
             ) : null}
 
@@ -204,6 +306,21 @@ export const TranslationTableView = ({
                 <table className="w-full">
                     <thead className="sticky top-0 bg-background">
                         <tr className="border-b">
+                            <th className="w-10 px-2 py-2 text-left">
+                                <input
+                                    aria-checked={someRowsSelected ? 'mixed' : allRowsSelected}
+                                    aria-label="Select all rows"
+                                    checked={allRowsSelected}
+                                    className="size-3.5 accent-primary"
+                                    ref={(node) => {
+                                        if (node) {
+                                            node.indeterminate = someRowsSelected;
+                                        }
+                                    }}
+                                    onChange={(event) => onToggleSelectAll(event.target.checked)}
+                                    type="checkbox"
+                                />
+                            </th>
                             <th className="w-16 px-4 py-2 text-left font-medium text-xs">ID</th>
                             <th className="w-1/2 px-4 py-2 text-left font-medium">Arabic</th>
                             <th className="w-1/2 px-4 py-2 text-left font-medium text-xs">Translation</th>
@@ -214,9 +331,13 @@ export const TranslationTableView = ({
                             <TranslationRow
                                 key={row.id}
                                 isEditing={editingRowId === row.id}
+                                isSelected={selectedRowIds.includes(row.id)}
                                 onDraftChange={onDraftChange}
                                 onStartEditing={setEditingRowId}
                                 onStopEditing={() => setEditingRowId(null)}
+                                onToggleSelect={onToggleSelectRow}
+                                onToggleSkip={onToggleSkip}
+                                skipActionDisabled={Boolean(skippingRowId) || isUpdatingSkip}
                                 row={row}
                             />
                         ))}

@@ -308,6 +308,59 @@ export const applyRupturePatchesToResponse = (response: string, patches?: Ruptur
     return segments.map((segment) => `${segment.id} - ${segment.text}`).join('\n\n');
 };
 
+const getSharedPrefixLength = (left: string, right: string) => {
+    const limit = Math.min(left.length, right.length);
+    let index = 0;
+
+    while (index < limit && left[index] === right[index]) {
+        index += 1;
+    }
+
+    return index;
+};
+
+const getSharedSuffixLength = (left: string, right: string, sharedPrefixLength: number) => {
+    const leftLimit = left.length - sharedPrefixLength;
+    const rightLimit = right.length - sharedPrefixLength;
+    const limit = Math.min(leftLimit, rightLimit);
+    let index = 0;
+
+    while (
+        index < limit &&
+        left[left.length - 1 - index] === right[right.length - 1 - index]
+    ) {
+        index += 1;
+    }
+
+    return index;
+};
+
+const collapsePatchForReplacementLikeEdit = (
+    originalText: string,
+    nextText: string,
+    patch: RupturePatch,
+): RupturePatch => {
+    if (patch.ops.length < 4) {
+        return patch;
+    }
+
+    const sharedPrefixLength = getSharedPrefixLength(originalText, nextText);
+    const sharedSuffixLength = getSharedSuffixLength(originalText, nextText, sharedPrefixLength);
+    const replacementStart = sharedPrefixLength;
+    const replacementEnd = originalText.length - sharedSuffixLength;
+    const replacementText = nextText.slice(sharedPrefixLength, nextText.length - sharedSuffixLength);
+    const changedOriginalLength = replacementEnd - replacementStart;
+    const changedNextLength = replacementText.length;
+    const originalChangeRatio = changedOriginalLength / Math.max(originalText.length, 1);
+    const nextChangeRatio = changedNextLength / Math.max(nextText.length, 1);
+
+    if (Math.max(originalChangeRatio, nextChangeRatio) < 0.5) {
+        return patch;
+    }
+
+    return { ops: [{ end: replacementEnd, start: replacementStart, text: replacementText }] };
+};
+
 export const createRupturePatch = (originalText: string, nextText: string): RupturePatch | null => {
     if (originalText === nextText) {
         return null;
@@ -353,5 +406,9 @@ export const createRupturePatch = (originalText: string, nextText: string): Rupt
 
     flushPending();
 
-    return ops.length > 0 ? { ops } : null;
+    if (ops.length === 0) {
+        return null;
+    }
+
+    return collapsePatchForReplacementLikeEdit(originalText, nextText, { ops });
 };

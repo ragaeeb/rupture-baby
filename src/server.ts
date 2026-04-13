@@ -9,13 +9,16 @@ const runStartupLogging = async () => {
 
     didRunStartupLogging = true;
 
-    const { getTranslationAssistProviderInfo } = await import('./lib/llm');
-    console.info('[llm] startup', await getTranslationAssistProviderInfo());
+    const { getShiftSettingsInfo } = await import('./lib/shift-cache');
+    console.info('[shift] settings', await getShiftSettingsInfo());
 };
+
+void runStartupLogging().catch((error) => {
+    console.error('[shift] settings failed', error);
+});
 
 export default createServerEntry({
     async fetch(request, options) {
-        await runStartupLogging();
         return handler.fetch(request, options);
     },
 });

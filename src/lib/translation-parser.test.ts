@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { parseTranslationToCommon } from './translation-parser';
+import { getConversationSourceSegments, parseTranslationToCommon } from './translation-parser';
+import { parseTranslationsInOrder } from './validation/textUtils';
 import type { MessageNode } from './translation-types';
 
 const ruptureMeta = { patches: { P1: { ops: [{ end: 4, start: 0, text: 'patch' }] } } };
@@ -348,5 +349,57 @@ describe('parseTranslationToCommon - Blackiya Original Format', () => {
         expect(() => parseTranslationToCommon(input)).toThrow(
             'Input does not match a supported translation JSON shape',
         );
+    });
+
+    it('should resolve the real source block when instruction examples appear before the source excerpts', () => {
+        const prompt = `
+Translation text... (Correct) vs P1234
+Translation... (Forbidden).
+EXAMPLE: Input:
+P405 - Example source
+P405 - Example translation
+P5455 - Another example source
+P5455 - Another example translation
+
+SOURCE:
+P224767a - Source 1
+P224767b - Source 2
+P224768 - Source 3
+P224768a - Source 4
+P224768b - Source 5
+P224768c - Source 6
+P224769 - Source 7
+P224769a - Source 8
+        `.trim();
+        const response = `
+P224767a - Translation 1
+P224767b - Translation 2
+P224768 - Translation 3
+P224768a - Translation 4
+P224768b - Translation 5
+P224769 - Translation 7
+P224769a - Translation 8
+        `.trim();
+        const responseSegments = parseTranslationsInOrder(response);
+
+        expect(
+            getConversationSourceSegments(
+                {
+                    __blackiya: undefined,
+                    __rupture: undefined,
+                    conversation_id: 'test-conversation',
+                    created_at: '2026-04-09T00:00:00.000Z',
+                    format: 'common',
+                    llm: 'Grok',
+                    model: undefined,
+                    prompt,
+                    reasoning: [],
+                    response,
+                    title: 'Test',
+                    updated_at: '2026-04-09T00:00:00.000Z',
+                },
+                responseSegments,
+            ).map((segment) => segment.id),
+        ).toEqual(['P224767a', 'P224767b', 'P224768', 'P224768a', 'P224768b', 'P224768c', 'P224769', 'P224769a']);
     });
 });

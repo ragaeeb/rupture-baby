@@ -628,7 +628,7 @@ export const parseTranslationToCommon = (data: unknown): CommonConversationExpor
 };
 
 const mapTranslatorToId = (model: string): AITranslator => {
-    if (model === 'gemini-3-pro') {
+    if (model === 'gemini-3-pro' || model === 'gemini-3.1-pro') {
         return 901;
     }
 
@@ -638,6 +638,10 @@ const mapTranslatorToId = (model: string): AITranslator => {
 
     if (model === 'gpt-5-4-thinking') {
         return 900;
+    }
+
+    if (model === 'gpt-5-4-t-mini') {
+        return 904;
     }
 
     if (model === 'grok-4') {
@@ -726,28 +730,125 @@ const buildResponseAlignmentErrors = (
     return errors;
 };
 
-export const getConversationSourceSegments = (c: CommonConversationExport) => {
+export const resolveConversationSourceSegments = (c: CommonConversationExport, responseSegments?: Segment[]) => {
     const firstSegmentPattern = new RegExp(
         `^${MARKER_ID_PATTERN}${TRANSLATION_MARKER_PARTS.optionalSpace}${TRANSLATION_MARKER_PARTS.dashes}\\s*`,
-        'm',
+        'gm',
     );
-    const firstSegmentMatch = c.prompt.match(firstSegmentPattern);
-    const arabic = (firstSegmentMatch ? c.prompt.slice(firstSegmentMatch.index ?? 0) : c.prompt).trim();
-    return parseTranslationsInOrder(arabic);
+    const promptSegments = parseTranslationsInOrder(
+        ((): string => {
+            const firstSegmentMatch = c.prompt.match(firstSegmentPattern);
+            return (firstSegmentMatch ? c.prompt.slice(firstSegmentMatch.index ?? 0) : c.prompt).trim();
+        })(),
+    );
+
+    if (responseSegments && responseSegments.length > 0 && promptSegments.length >= responseSegments.length) {
+        const responseIds = responseSegments.map((segment) => segment.id);
+
+        // First prefer an exact contiguous block match when the response preserved the full source ordering.
+        for (let startIndex = promptSegments.length - responseIds.length; startIndex >= 0; startIndex -= 1) {
+            const slice = promptSegments.slice(startIndex, startIndex + responseIds.length);
+            if (slice.every((segment, index) => segment.id === responseIds[index])) {
+                return { alignedToResponse: true, segments: slice };
+            }
+        }
+
+        // If the response skipped source IDs or invented an extra ID, recover the smallest prompt span
+        // with the strongest ordered overlap. This avoids treating instruction examples as source.
+        const responseIdSet = new Set(responseIds);
+        const candidates = promptSegments
+            .map((segment, index) => ({ id: segment.id, index }))
+            .filter((segment) => responseIdSet.has(segment.id))
+            .map(({ index: startIndex }) => {
+                let promptIndex = startIndex;
+                let responseIndex = 0;
+                let matchedCount = 0;
+                let endIndex = startIndex - 1;
+                const remainingPromptIds = new Set(promptSegments.slice(startIndex).map((segment) => segment.id));
+
+                while (promptIndex < promptSegments.length && responseIndex < responseIds.length) {
+                    const promptId = promptSegments[promptIndex]?.id;
+                    const responseId = responseIds[responseIndex];
+
+                    if (promptId === responseId) {
+                        matchedCount += 1;
+                        endIndex = promptIndex;
+                        if (promptId) {
+                            remainingPromptIds.delete(promptId);
+                        }
+                        promptIndex += 1;
+                        responseIndex += 1;
+                        continue;
+                    }
+
+                    if (promptId && !responseIdSet.has(promptId)) {
+                        remainingPromptIds.delete(promptId);
+                        promptIndex += 1;
+                        continue;
+                    }
+
+                    if (responseId && !remainingPromptIds.has(responseId)) {
+                        responseIndex += 1;
+                        continue;
+                    }
+
+                    if (promptId) {
+                        remainingPromptIds.delete(promptId);
+                    }
+                    promptIndex += 1;
+                }
+
+                if (matchedCount === 0 || endIndex < startIndex) {
+                    return null;
+                }
+
+                return { endIndex, matchedCount, spanLength: endIndex - startIndex + 1, startIndex };
+            })
+            .filter(
+                (
+                    candidate,
+                ): candidate is { endIndex: number; matchedCount: number; spanLength: number; startIndex: number } =>
+                    candidate !== null,
+            )
+            .sort(
+                (left, right) =>
+                    right.matchedCount - left.matchedCount ||
+                    left.spanLength - right.spanLength ||
+                    right.startIndex - left.startIndex ||
+                    right.endIndex - left.endIndex,
+            );
+
+        const bestCandidate = candidates[0];
+        if (bestCandidate) {
+            return {
+                alignedToResponse: true,
+                segments: promptSegments.slice(bestCandidate.startIndex, bestCandidate.endIndex + 1),
+            };
+        }
+    }
+
+    return { alignedToResponse: false, segments: promptSegments };
 };
 
-export const validateConversationExcerpts = (c: CommonConversationExport): ConversationExcerptsValidation => {
-    const arabicSegments = getConversationSourceSegments(c);
-    const translatedSegments = parseTranslationsInOrder(c.response);
-    const validatorResult = validateTranslationResponse(arabicSegments, c.response);
-    const alignmentErrors = buildResponseAlignmentErrors(arabicSegments, translatedSegments, c.response);
+export const getConversationSourceSegments = (c: CommonConversationExport, responseSegments?: Segment[]) =>
+    resolveConversationSourceSegments(c, responseSegments).segments;
+
+export const validateExcerptsAgainstSourceSegments = (
+    arabicSegments: Segment[],
+    response: string,
+    metadata?: Pick<CommonConversationExport, 'created_at' | 'model' | 'updated_at'>,
+): ConversationExcerptsValidation => {
+    const translatedSegments = parseTranslationsInOrder(response);
+    const validatorResult = validateTranslationResponse(arabicSegments, response);
+    const alignmentErrors = buildResponseAlignmentErrors(arabicSegments, translatedSegments, response);
     const validationErrors = [...validatorResult.errors, ...alignmentErrors];
 
     if (validationErrors.length > 0) {
         return { arabicSegments, excerpts: [], translatedSegments, validationErrors };
     }
 
-    const lastUpdatedAt = parseIsoTimestampToSeconds(c.updated_at) ?? parseIsoTimestampToSeconds(c.created_at);
+    const lastUpdatedAt =
+        parseIsoTimestampToSeconds(metadata?.updated_at) ?? parseIsoTimestampToSeconds(metadata?.created_at);
     const excerpts = arabicSegments.map((e, i) => {
         return {
             from: 0,
@@ -755,11 +856,18 @@ export const validateConversationExcerpts = (c: CommonConversationExport): Conve
             lastUpdatedAt,
             nass: e.text,
             text: translatedSegments[i].text,
-            translator: mapTranslatorToId(c.model!),
+            translator: mapTranslatorToId(metadata?.model!),
         } satisfies Excerpt;
     });
 
     return { arabicSegments, excerpts, translatedSegments, validationErrors: [] };
+};
+
+export const validateConversationExcerpts = (c: CommonConversationExport): ConversationExcerptsValidation => {
+    const translatedSegments = parseTranslationsInOrder(c.response);
+    const arabicSegments = getConversationSourceSegments(c, translatedSegments);
+
+    return validateExcerptsAgainstSourceSegments(arabicSegments, c.response, c);
 };
 
 export const mapConversationToExcerpts = (c: CommonConversationExport): Excerpt[] => {

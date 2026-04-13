@@ -10,6 +10,9 @@ import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { getStoredAssistProvider } from '@/lib/assist-provider-storage';
 import {
+    storeArabicLeakCorrections,
+} from '@/lib/arabic-leak-storage';
+import {
     applyAllCapsCorrectionsToInvalidRows,
     applyArabicLeakCorrectionsToInvalidRows,
     commitInvalidPendingEdits,
@@ -191,6 +194,7 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
     const someFixableRowsSelected = selectedRowKeys.length > 0 && selectedRowKeys.length < fixableRows.length;
 
     const pendingEditCount = Object.keys(pendingEdits).length;
+    const [lastFailedSelection, setLastFailedSelection] = useState<string[] | null>(null);
 
     useEffect(() => {
         if (!selectAllCheckboxRef.current) {
@@ -244,8 +248,9 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
             return;
         }
 
-        setAssistError(null);
-        setIsFixingErrors(true);
+            setAssistError(null);
+            setIsFixingErrors(true);
+            setLastFailedSelection(null);
 
         try {
             let nextEdits = pendingEdits;
@@ -253,7 +258,9 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
             let updatedRowCount = 0;
 
             for (const task of ['arabic_leak_correction', 'all_caps_correction'] as const) {
-                const taskRows = selectedBatchRows.filter((row) => row.errorTypes.includes(task === 'arabic_leak_correction' ? 'arabic_leak' : 'all_caps'));
+                let taskRows = selectedBatchRows.filter((row) =>
+                    row.errorTypes.includes(task === 'arabic_leak_correction' ? 'arabic_leak' : 'all_caps'),
+                );
                 if (taskRows.length === 0) {
                     continue;
                 }
@@ -283,6 +290,10 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
                 nextEdits = result.nextEdits;
                 issues.push(...result.issues);
                 updatedRowCount += result.updatedRowCount;
+
+                if (task === 'arabic_leak_correction' && response.corrections.length > 0) {
+                    storeArabicLeakCorrections({ corrections: response.corrections, patchMetadata: response.patchMetadata });
+                }
             }
 
             if (updatedRowCount === 0) {
@@ -296,6 +307,7 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
             });
         } catch (error) {
             setAssistError(error instanceof Error ? error.message : 'Failed to request Arabic leak corrections.');
+            setLastFailedSelection(selectedRowKeys);
         } finally {
             setIsFixingErrors(false);
         }
@@ -335,6 +347,15 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
         }
     };
 
+    const handleRetryFixErrors = () => {
+        if (!lastFailedSelection || lastFailedSelection.length === 0 || isFixingErrors) {
+            return;
+        }
+
+        setSelectedRowKeys(lastFailedSelection);
+        handleFixErrors();
+    };
+
     return (
         <>
             <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
@@ -357,7 +378,21 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
                             <p className="mt-2 text-muted-foreground text-sm">
                                 {visibleRows.length} invalid excerpt rows shown across {data.invalidFileCount} files.
                             </p>
-                            {assistError ? <p className="mt-2 text-destructive text-xs">{assistError}</p> : null}
+                            {assistError ? (
+                                <div className="mt-2 space-y-1 text-xs text-destructive">
+                                    <p>{assistError}</p>
+                                    {lastFailedSelection ? (
+                                        <button
+                                            className="inline-flex items-center gap-1 rounded-md border border-destructive/30 px-2 py-1.5 text-xs font-medium"
+                                            onClick={handleRetryFixErrors}
+                                            type="button"
+                                            disabled={isFixingErrors}
+                                        >
+                                            Retry last request
+                                        </button>
+                                    ) : null}
+                                </div>
+                            ) : null}
                         </div>
 
                         <div className="flex items-center gap-2">

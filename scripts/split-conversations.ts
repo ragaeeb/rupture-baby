@@ -8,8 +8,12 @@
  *   --write    Actually perform the split (default is dry-run)
  */
 
+import { execFile } from 'node:child_process';
 import { readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 type GrokMassExport = {
     conversations: Array<{
@@ -19,6 +23,7 @@ type GrokMassExport = {
 };
 
 const TRANSLATIONS_DIR = process.env.TRANSLATIONS_DIR || path.join(process.cwd(), 'translations');
+const execFileAsync = promisify(execFile);
 
 const isGrokMassExport = (data: unknown): data is GrokMassExport => {
     if (typeof data !== 'object' || data === null) {
@@ -46,15 +51,22 @@ const isGrokMassExport = (data: unknown): data is GrokMassExport => {
     return true;
 };
 
-const findJsonFiles = async (dir: string): Promise<string[]> => {
+type SplitResult = {
+    conversations?: Array<{ id: string; outputPath: string; title: string }>;
+    originalFile: string;
+    reason?: string;
+    split: boolean;
+};
+
+const findCandidateFiles = async (dir: string): Promise<string[]> => {
     const files: string[] = [];
     const entries = await readdir(dir, { withFileTypes: true });
 
     for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-            files.push(...(await findJsonFiles(fullPath)));
-        } else if (entry.isFile() && entry.name.endsWith('.json')) {
+            files.push(...(await findCandidateFiles(fullPath)));
+        } else if (entry.isFile() && (entry.name.endsWith('.json') || entry.name.endsWith('.zip'))) {
             files.push(fullPath);
         }
     }
@@ -62,23 +74,46 @@ const findJsonFiles = async (dir: string): Promise<string[]> => {
     return files;
 };
 
-const splitConversations = async (filePath: string, dryRun: boolean) => {
+const unzipArchive = async (archivePath: string, destinationDir: string) => {
+    await execFileAsync('unzip', ['-oq', archivePath, '-d', destinationDir]);
+};
+
+const findNamedFiles = async (dir: string, fileName: string): Promise<string[]> => {
+    const matches: string[] = [];
+    const entries = await readdir(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            matches.push(...(await findNamedFiles(fullPath, fileName)));
+            continue;
+        }
+
+        if (entry.isFile() && entry.name === fileName) {
+            matches.push(fullPath);
+        }
+    }
+
+    return matches;
+};
+
+const splitConversations = async (filePath: string, dryRun: boolean, outputDir = path.dirname(filePath)) => {
     const data = await Bun.file(filePath).json();
 
     if (!isGrokMassExport(data)) {
-        return { reason: 'Not a multi-conversation file', split: false };
+        return { originalFile: filePath, reason: 'Not a multi-conversation file', split: false };
     }
 
-    const dir = path.dirname(filePath);
     const results: Array<{ id: string; title: string; outputPath: string }> = [];
 
     for (const conv of data.conversations) {
         const convId = conv.conversation.id;
         const title = conv.conversation.title || 'Untitled';
-        const outputPath = path.join(dir, `${convId}.json`);
+        const outputPath = path.join(outputDir, `${convId}.json`);
 
         // Create single conversation file - output the conversation object directly
         if (!dryRun) {
+            await rm(outputPath, { force: true });
             await writeFile(outputPath, JSON.stringify(conv, null, 2), 'utf8');
         }
 
@@ -92,6 +127,38 @@ const splitConversations = async (filePath: string, dryRun: boolean) => {
     return { conversations: results, originalFile: filePath, split: true };
 };
 
+const splitZipArchive = async (archivePath: string, dryRun: boolean) => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'split-conversations-'));
+
+    try {
+        await unzipArchive(archivePath, tempDir);
+        const prodFiles = await findNamedFiles(tempDir, 'prod-grok-backend.json');
+
+        if (prodFiles.length === 0) {
+            return { originalFile: archivePath, reason: 'No prod-grok-backend.json found in archive', split: false };
+        }
+
+        const conversations: Array<{ id: string; outputPath: string; title: string }> = [];
+
+        for (const prodFile of prodFiles) {
+            const result = await splitConversations(prodFile, dryRun, TRANSLATIONS_DIR);
+            if (result.split && result.conversations) {
+                conversations.push(...result.conversations);
+            }
+        }
+
+        if (!dryRun && conversations.length > 0) {
+            await rm(archivePath, { force: true });
+        }
+
+        return conversations.length > 0
+            ? { conversations, originalFile: archivePath, split: true }
+            : { originalFile: archivePath, reason: 'prod-grok-backend.json was not a multi-conversation file', split: false };
+    } finally {
+        await rm(tempDir, { force: true, recursive: true });
+    }
+};
+
 const run = async () => {
     const args = process.argv.slice(2);
     const writeMode = args.includes('--write');
@@ -99,15 +166,15 @@ const run = async () => {
     console.log(`Scanning: ${TRANSLATIONS_DIR}`);
     console.log(`Mode: ${writeMode ? 'WRITE' : 'DRY-RUN'}\n`);
 
-    const jsonFiles = await findJsonFiles(TRANSLATIONS_DIR);
-    console.log(`Found ${jsonFiles.length} JSON files\n`);
+    const candidateFiles = await findCandidateFiles(TRANSLATIONS_DIR);
+    console.log(`Found ${candidateFiles.length} candidate files\n`);
 
     let splitCount = 0;
     let totalNewFiles = 0;
 
-    for (const file of jsonFiles) {
+    for (const file of candidateFiles) {
         try {
-            const result = await splitConversations(file, !writeMode);
+            const result = file.endsWith('.zip') ? await splitZipArchive(file, !writeMode) : await splitConversations(file, !writeMode);
 
             if (result.split && result.conversations) {
                 splitCount += 1;

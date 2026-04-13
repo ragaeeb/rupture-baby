@@ -10,11 +10,11 @@ import {
     buildPlaybackTargetLocatorMap,
     getCompilationDuplicateTargetIds,
 } from '@/lib/playback';
-import { readJsonFile, readTextFile, writeTextFile } from '@/lib/runtime-files';
+import { readJsonFile, writeTextFile } from '@/lib/runtime-files';
 import type { CompilationPlaybackSimulationResponse, SaveCompilationPlaybackResponse } from '@/lib/shell-types';
 import { mapDateToSeconds, nowInSeconds } from '@/lib/time';
+import { getTranslationFileAnalyses } from '@/lib/translation-analysis-cache';
 import { isRupturePatchMetadata, type RupturePatchMetadataMap } from '@/lib/translation-patches';
-import { analyzeTranslationValidity, isTranslationValidityAnalysisInvalid } from '@/lib/translation-validity';
 import { collectTranslationFilePaths } from '@/lib/translations-browser';
 import type { Compilation, Excerpt, Heading, PatchedTranslationMetadata } from '@/types/compilation';
 import { type CompilationStats, summarizeCompilationStats } from './compilation-stats';
@@ -159,6 +159,7 @@ export const simulateCompilationPlayback = async (): Promise<CompilationPlayback
     const translationsDirectory = requireTranslationsDir();
     const filePaths = await collectTranslationFilePaths(translationsDirectory, '');
     const compilation = await readJsonFile<Compilation>(compilationFilePath);
+    const translationFileAnalyses = await getTranslationFileAnalyses(translationsDirectory, filePaths);
     const compilationDuplicateTargetIds = getCompilationDuplicateTargetIds(compilation);
     const compilationExcerptIds = buildCompilationTargetIdSet(compilation);
     const fullyTranslatedExcerptIds = buildFullyTranslatedTargetIdSet(compilation);
@@ -172,20 +173,16 @@ export const simulateCompilationPlayback = async (): Promise<CompilationPlayback
     const playableExcerpts: Excerpt[] = [];
     let totalCandidateExcerptCount = 0;
 
-    for (const filePath of filePaths) {
-        const fullPath = path.join(translationsDirectory, filePath);
-        const content = await readTextFile(fullPath);
-        const analysis = analyzeTranslationValidity(content);
-
-        if (isTranslationValidityAnalysisInvalid(analysis)) {
-            invalidFilePaths.push(filePath);
+    for (const fileAnalysis of translationFileAnalyses) {
+        if (!fileAnalysis.isValid || !fileAnalysis.analysis) {
+            invalidFilePaths.push(fileAnalysis.path);
             continue;
         }
 
-        validFilePaths.push(filePath);
-        const excerpts = analysis.validation.excerpts;
+        validFilePaths.push(fileAnalysis.path);
+        const excerpts = fileAnalysis.playableExcerpts;
         totalCandidateExcerptCount += excerpts.length;
-        const patchMetadataById = analysis.parsed.__rupture?.patchMetadata;
+        const patchMetadataById = fileAnalysis.analysis.parsed.__rupture?.patchMetadata;
 
         for (const excerpt of excerpts) {
             const patchedMetadata = getExcerptPatchMetadata(patchMetadataById, excerpt.id);
@@ -195,7 +192,7 @@ export const simulateCompilationPlayback = async (): Promise<CompilationPlayback
                 excerpt: patchedMetadata
                     ? { ...excerpt, meta: { ...(excerpt.meta ?? {}), patched: patchedMetadata } }
                     : excerpt,
-                filePath,
+                filePath: fileAnalysis.path,
                 fullyTranslatedExcerptIds,
                 playableExcerpts,
                 seenPlayableExcerptSourceFiles,
@@ -203,7 +200,7 @@ export const simulateCompilationPlayback = async (): Promise<CompilationPlayback
             });
 
             if (result === 'already_translated') {
-                addIssueSourceFile(skippedAlreadyTranslatedExcerptIds, excerpt.id, filePath);
+                addIssueSourceFile(skippedAlreadyTranslatedExcerptIds, excerpt.id, fileAnalysis.path);
             }
         }
     }

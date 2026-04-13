@@ -5,9 +5,11 @@ import { mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
 import { MissingPathConfigError, requireCompilationFilePath, requireTranslationsDir } from '@/lib/data-paths';
+import { perfLog, withPerfSpan } from '@/lib/perf-log';
 import { getThinkingTimeRange } from '@/lib/reasoning-time';
 import { fileExists, getFileSizeBytes, readTextFile, writeTextFile } from '@/lib/runtime-files';
-import type { InvalidExcerptRow, InvalidExcerptsResponse, JsonValue, TranslationFileResponse } from '@/lib/shell-types';
+import type { InvalidExcerptsResponse, JsonValue, TranslationFileResponse } from '@/lib/shell-types';
+import { getTranslationFileAnalyses, invalidateTranslationFileAnalysisCache } from './translation-analysis-cache';
 import { getConversationSourceSegments, parseTranslationToCommon } from './translation-parser';
 import {
     isRupturePatchMetadata,
@@ -15,13 +17,7 @@ import {
     type RupturePatch,
     type RupturePatchMetadata,
 } from './translation-patches';
-import {
-    analyzeTranslationValidity,
-    getVisibleTranslationValidityErrors,
-    isTranslationValidityAnalysisInvalid,
-} from './translation-validity';
 import { parseTranslationsInOrder } from './validation/textUtils';
-import type { Range, ValidationErrorType } from './validation/types';
 
 export type TranslationTreeNode = {
     kind: 'directory' | 'file';
@@ -32,7 +28,7 @@ export type TranslationTreeNode = {
 
 export type TranslationTreeResponse = { rootName: string; rootRelativePath: ''; entries: TranslationTreeNode[] };
 
-type CachedTree = { directoryMtimeMs: number; tree: TranslationTreeResponse };
+type CachedTree = { filePaths: string[]; rootDirectory: string; tree: TranslationTreeResponse };
 
 let cachedTree: CachedTree | null = null;
 
@@ -93,50 +89,39 @@ const readDirectoryTree = async (
     return output;
 };
 
-const getLatestTreeMtimeMs = async (currentDirectory: string): Promise<number> => {
-    const directoryStats = await stat(currentDirectory);
-    let latestMtimeMs = directoryStats.mtimeMs;
-    const directoryEntries = await readdir(currentDirectory, { withFileTypes: true });
+const flattenTranslationTreeFilePaths = (nodes: TranslationTreeNode[]): string[] =>
+    nodes.flatMap((node) =>
+        node.kind === 'file' ? [node.relativePath] : flattenTranslationTreeFilePaths(node.children ?? []),
+    );
 
-    for (const entry of directoryEntries) {
-        const entryPath = path.join(currentDirectory, entry.name);
-
-        if (entry.isDirectory()) {
-            const childLatestMtimeMs = await getLatestTreeMtimeMs(entryPath);
-            if (childLatestMtimeMs > latestMtimeMs) {
-                latestMtimeMs = childLatestMtimeMs;
-            }
-            continue;
-        }
-
-        if (!entry.isFile()) {
-            continue;
-        }
-
-        const entryStats = await stat(entryPath);
-        if (entryStats.mtimeMs > latestMtimeMs) {
-            latestMtimeMs = entryStats.mtimeMs;
-        }
+export const invalidateTranslationTreeCache = (rootDirectory?: string) => {
+    if (!rootDirectory || !cachedTree || cachedTree.rootDirectory === rootDirectory) {
+        cachedTree = null;
     }
-
-    return latestMtimeMs;
 };
 
 export const getTranslationTree = async (): Promise<TranslationTreeResponse> => {
-    const translationsDirectory = requireTranslationsDir();
-    const directoryMtimeMs = await getLatestTreeMtimeMs(translationsDirectory);
+    return withPerfSpan('translations-browser', 'get_translation_tree', async () => {
+        const translationsDirectory = requireTranslationsDir();
 
-    if (cachedTree && cachedTree.directoryMtimeMs === directoryMtimeMs) {
-        return cachedTree.tree;
-    }
+        if (cachedTree && cachedTree.rootDirectory === translationsDirectory) {
+            perfLog('translations-browser', 'tree_cache_hit', {
+                fileCount: cachedTree.filePaths.length,
+                rootDirectory: translationsDirectory,
+            });
+            return cachedTree.tree;
+        }
 
-    const rootName = path.basename(translationsDirectory);
-    const entries = await readDirectoryTree(translationsDirectory, '');
-    const nextTree: TranslationTreeResponse = { entries, rootName, rootRelativePath: '' };
+        perfLog('translations-browser', 'tree_cache_miss', { rootDirectory: translationsDirectory });
+        const rootName = path.basename(translationsDirectory);
+        const entries = await readDirectoryTree(translationsDirectory, '');
+        const nextTree: TranslationTreeResponse = { entries, rootName, rootRelativePath: '' };
+        const filePaths = flattenTranslationTreeFilePaths(entries);
 
-    cachedTree = { directoryMtimeMs, tree: nextTree };
+        cachedTree = { filePaths, rootDirectory: translationsDirectory, tree: nextTree };
 
-    return nextTree;
+        return nextTree;
+    });
 };
 
 export const readTranslationJsonFile = async (rawRelativePath: string): Promise<TranslationFileResponse> => {
@@ -170,6 +155,31 @@ export const readTranslationJsonFile = async (rawRelativePath: string): Promise<
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const getNextSkippedExcerptIds = (
+    currentSkip: unknown,
+    excerptId: string,
+    skipped: boolean,
+    validExcerptIds: Set<string>,
+) => {
+    const nextSkippedIds = new Set<string>();
+
+    if (Array.isArray(currentSkip)) {
+        for (const value of currentSkip) {
+            if (typeof value === 'string' && validExcerptIds.has(value)) {
+                nextSkippedIds.add(value);
+            }
+        }
+    }
+
+    if (skipped) {
+        nextSkippedIds.add(excerptId);
+    } else {
+        nextSkippedIds.delete(excerptId);
+    }
+
+    return [...nextSkippedIds].sort();
+};
 
 const getNextPatchMetadata = (
     currentPatchMetadata: unknown,
@@ -283,6 +293,59 @@ export const writeTranslationPatch = async (
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeTextFile(tempPath, `${JSON.stringify(nextContent, null, 2)}\n`);
     await rename(tempPath, absolutePath);
+    invalidateTranslationFileAnalysisCache(translationsDir, relativePath);
+
+    return readTranslationJsonFile(relativePath);
+};
+
+export const writeTranslationSkip = async (rawRelativePath: string, excerptId: string, skipped: boolean) => {
+    const translationsDir = requireTranslationsDir();
+    const relativePath = normalizeRelativePath(rawRelativePath);
+
+    if (!relativePath.endsWith('.json')) {
+        throw new Error('Only .json files are supported.');
+    }
+
+    const absolutePath = path.join(translationsDir, relativePath);
+    assertPathInsideRoot(translationsDir, absolutePath);
+
+    if (!(await fileExists(absolutePath))) {
+        throw new Error('File not found.');
+    }
+
+    const content = await readTextFile(absolutePath);
+    const parsedJson = JSON.parse(content) as unknown;
+    if (!isRecord(parsedJson)) {
+        throw new Error('Translation file must be a JSON object.');
+    }
+
+    const conversation = parseTranslationToCommon(parsedJson);
+    const sourceIds = new Set(getConversationSourceSegments(conversation).map((segment) => segment.id));
+    if (!sourceIds.has(excerptId)) {
+        throw new Error('Excerpt not found.');
+    }
+
+    const nextContent = { ...parsedJson };
+    const nextRupture = isRecord(nextContent.__rupture) ? { ...nextContent.__rupture } : {};
+    const nextSkippedIds = getNextSkippedExcerptIds(nextRupture.skip, excerptId, skipped, sourceIds);
+
+    if (nextSkippedIds.length > 0) {
+        nextRupture.skip = nextSkippedIds;
+        nextContent.__rupture = nextRupture;
+    } else {
+        delete nextRupture.skip;
+        if (Object.keys(nextRupture).length > 0) {
+            nextContent.__rupture = nextRupture;
+        } else {
+            delete nextContent.__rupture;
+        }
+    }
+
+    const tempPath = `${absolutePath}.${randomUUID()}.tmp`;
+    await mkdir(path.dirname(absolutePath), { recursive: true });
+    await writeTextFile(tempPath, `${JSON.stringify(nextContent, null, 2)}\n`);
+    await rename(tempPath, absolutePath);
+    invalidateTranslationFileAnalysisCache(translationsDir, relativePath);
 
     return readTranslationJsonFile(relativePath);
 };
@@ -299,6 +362,8 @@ export const deleteTranslationJsonFile = async (rawRelativePath: string) => {
     assertPathInsideRoot(translationsDirectory, absolutePath);
 
     await unlink(absolutePath);
+    invalidateTranslationTreeCache(translationsDirectory);
+    invalidateTranslationFileAnalysisCache(translationsDirectory, relativePath);
 };
 
 const countFiles = (nodes: TranslationTreeNode[]): number => {
@@ -397,66 +462,77 @@ export const collectTranslationFilePaths = async (
     currentDirectory: string,
     currentRelativePath: string,
 ): Promise<string[]> => {
-    const files: string[] = [];
-    const directoryEntries = await readdir(currentDirectory, { withFileTypes: true });
+    return withPerfSpan(
+        'translations-browser',
+        'collect_translation_file_paths',
+        async () => {
+            const cachedRootFilePaths = await getCachedRootFilePaths(currentDirectory, currentRelativePath);
+            if (cachedRootFilePaths) {
+                perfLog('translations-browser', 'collect_paths_cache_hit', {
+                    currentDirectory,
+                    currentRelativePath,
+                    fileCount: cachedRootFilePaths.length,
+                });
+                return cachedRootFilePaths;
+            }
 
-    for (const entry of directoryEntries) {
-        const fullPath = path.join(currentDirectory, entry.name);
-        const relativePath = currentRelativePath ? `${currentRelativePath}/${entry.name}` : entry.name;
+            const files: string[] = [];
+            const directoryEntries = await readdir(currentDirectory, { withFileTypes: true });
 
-        if (entry.isDirectory()) {
-            files.push(...(await collectTranslationFilePaths(fullPath, relativePath)));
-        } else if (entry.isFile() && entry.name.endsWith('.json')) {
-            files.push(relativePath);
-        }
+            for (const entry of directoryEntries) {
+                const fullPath = path.join(currentDirectory, entry.name);
+                const relativePath = currentRelativePath ? `${currentRelativePath}/${entry.name}` : entry.name;
+
+                if (entry.isDirectory()) {
+                    files.push(...(await collectTranslationFilePaths(fullPath, relativePath)));
+                } else if (entry.isFile() && entry.name.endsWith('.json')) {
+                    files.push(relativePath);
+                }
+            }
+
+            return files;
+        },
+        { currentDirectory, currentRelativePath },
+    );
+};
+
+const getCachedRootFilePaths = async (
+    currentDirectory: string,
+    currentRelativePath: string,
+): Promise<string[] | null> => {
+    if (currentRelativePath) {
+        return null;
     }
 
-    return files;
+    const translationsDirectory = requireTranslationsDir();
+    if (path.resolve(currentDirectory) !== path.resolve(translationsDirectory)) {
+        return null;
+    }
+
+    if (cachedTree && cachedTree.rootDirectory === translationsDirectory) {
+        return cachedTree.filePaths;
+    }
+
+    await getTranslationTree();
+    return cachedTree?.filePaths ?? [];
 };
 
 export const getTranslationStats = async (): Promise<TranslationStats> => {
-    const translationsDir = requireTranslationsDir();
-    const filePaths = await collectTranslationFilePaths(translationsDir, '');
+    return withPerfSpan('translations-browser', 'get_translation_stats', async () => {
+        const translationsDir = requireTranslationsDir();
+        const filePaths = await collectTranslationFilePaths(translationsDir, '');
+        const analyses = await getTranslationFileAnalyses(translationsDir, filePaths);
 
-    const files: TranslationFileStats[] = [];
-    const modelBreakdown: Record<string, number> = {};
-    const invalidByModel: Record<string, number> = {};
-
-    for (const filePath of filePaths) {
-        try {
-            const fullPath = path.join(translationsDir, filePath);
-            const content = await readTextFile(fullPath);
-            const analysis = analyzeTranslationValidity(content);
-            const isValid = !isTranslationValidityAnalysisInvalid(analysis);
-            files.push({
-                isValid,
+        return summarizeTranslationStats(
+            analyses.map((analysis) => ({
+                isValid: analysis.isValid,
                 model: analysis.model,
-                patchesApplied: analysis.patchedExcerptIds.size,
-                path: filePath,
-                reasoningDurationSec: analysis.parsed.reasoning_duration_sec,
-            });
-
-            // Count models
-            if (analysis.model) {
-                modelBreakdown[analysis.model] = (modelBreakdown[analysis.model] || 0) + 1;
-                if (!isValid) {
-                    invalidByModel[analysis.model] = (invalidByModel[analysis.model] || 0) + 1;
-                }
-            }
-        } catch {
-            // If parsing fails, mark as invalid with unknown model
-            files.push({
-                isValid: false,
-                model: undefined,
-                patchesApplied: 0,
-                path: filePath,
-                reasoningDurationSec: undefined,
-            });
-            invalidByModel.unknown = (invalidByModel.unknown || 0) + 1;
-        }
-    }
-
-    return summarizeTranslationStats(files);
+                patchesApplied: analysis.patchesApplied,
+                path: analysis.path,
+                reasoningDurationSec: analysis.reasoningDurationSec,
+            })),
+        );
+    });
 };
 
 export const summarizeTranslationStats = (files: TranslationFileStats[]): TranslationStats => {
@@ -497,158 +573,14 @@ export const summarizeTranslationStats = (files: TranslationFileStats[]): Transl
     };
 };
 
-const buildInvalidExcerptRowsForFile = (filePath: string, content: string): InvalidExcerptRow[] => {
-    const analysis = analyzeTranslationValidity(content);
-    const { baseTranslatedById, model, translatedById, validation } = analysis;
-    const visibleValidationErrors = getVisibleTranslationValidityErrors(analysis);
-
-    if (visibleValidationErrors.length === 0) {
-        return [];
-    }
-    const errorsById = new Map<
-        string,
-        {
-            allCapsHints: string[];
-            leakHints: string[];
-            messages: string[];
-            types: ValidationErrorType[];
-            validationHighlightRanges: Range[];
-        }
-    >();
-    const globalErrorBucket: { messages: string[]; types: ValidationErrorType[] } = { messages: [], types: [] };
-
-    for (const error of visibleValidationErrors) {
-        if (error.id) {
-            const existing = errorsById.get(error.id) ?? {
-                allCapsHints: [],
-                leakHints: [],
-                messages: [],
-                types: [],
-                validationHighlightRanges: [],
-            };
-            existing.messages.push(error.message);
-            existing.types.push(error.type);
-            if (error.type === 'arabic_leak' && error.matchText.trim().length > 0) {
-                existing.leakHints.push(error.matchText.trim());
-            }
-            if (error.type === 'all_caps' && error.matchText.trim().length > 0) {
-                existing.allCapsHints.push(error.matchText.trim());
-            }
-            if (error.segmentRange) {
-                existing.validationHighlightRanges.push(error.segmentRange);
-            }
-            errorsById.set(error.id, existing);
-        } else {
-            globalErrorBucket.messages.push(error.message);
-            globalErrorBucket.types.push(error.type);
-        }
-    }
-
-    const excerptRows: InvalidExcerptRow[] = validation.arabicSegments.flatMap((segment) => {
-        const errorBucket = errorsById.get(segment.id);
-        if (!errorBucket || errorBucket.messages.length === 0) {
-            return [];
-        }
-
-        return [
-            {
-                allCapsHints: [...new Set(errorBucket.allCapsHints)],
-                arabic: segment.text,
-                arabicLeakHints: [...new Set(errorBucket.leakHints)],
-                baseTranslation: baseTranslatedById.get(segment.id) ?? null,
-                errorTypes: [...new Set(errorBucket.types)],
-                filePath,
-                id: segment.id,
-                messages: errorBucket.messages,
-                model,
-                patchHighlights: [],
-                translation: translatedById.get(segment.id) ?? null,
-                validationHighlightRanges: errorBucket.validationHighlightRanges,
-            },
-        ];
-    });
-
-    const matchedSegmentIds = new Set(validation.arabicSegments.map((segment) => segment.id));
-    const unmatchedIdRows: InvalidExcerptRow[] = [...errorsById.entries()].flatMap(([id, errorBucket]) => {
-        if (matchedSegmentIds.has(id) || errorBucket.messages.length === 0) {
-            return [];
-        }
-
-        return [
-            {
-                allCapsHints: [...new Set(errorBucket.allCapsHints)],
-                arabic: null,
-                arabicLeakHints: [...new Set(errorBucket.leakHints)],
-                baseTranslation: baseTranslatedById.get(id) ?? translatedById.get(id) ?? null,
-                errorTypes: [...new Set(errorBucket.types)],
-                filePath,
-                id,
-                messages: errorBucket.messages,
-                model,
-                patchHighlights: [],
-                translation: translatedById.get(id) ?? null,
-                validationHighlightRanges: errorBucket.validationHighlightRanges,
-            },
-        ];
-    });
-
-    if (globalErrorBucket.messages.length === 0) {
-        return [...excerptRows, ...unmatchedIdRows];
-    }
-
-    return [
-        ...excerptRows,
-        ...unmatchedIdRows,
-        {
-            allCapsHints: [],
-            arabic: null,
-            arabicLeakHints: [],
-            baseTranslation: null,
-            errorTypes: [...new Set(globalErrorBucket.types)],
-            filePath,
-            id: null,
-            messages: globalErrorBucket.messages,
-            model,
-            patchHighlights: [],
-            translation: null,
-            validationHighlightRanges: [],
-        },
-    ];
-};
-
 export const getInvalidExcerpts = async (): Promise<InvalidExcerptsResponse> => {
-    const translationsDir = requireTranslationsDir();
-    const filePaths = await collectTranslationFilePaths(translationsDir, '');
-    const rows: InvalidExcerptRow[] = [];
-    let invalidFileCount = 0;
+    return withPerfSpan('translations-browser', 'get_invalid_excerpts', async () => {
+        const translationsDir = requireTranslationsDir();
+        const filePaths = await collectTranslationFilePaths(translationsDir, '');
+        const analyses = await getTranslationFileAnalyses(translationsDir, filePaths);
+        const rows = analyses.flatMap((analysis) => analysis.invalidRows);
+        const invalidFileCount = analyses.filter((analysis) => analysis.invalidRows.length > 0).length;
 
-    for (const filePath of filePaths) {
-        try {
-            const fullPath = path.join(translationsDir, filePath);
-            const content = await readTextFile(fullPath);
-            const fileRows = buildInvalidExcerptRowsForFile(filePath, content);
-
-            if (fileRows.length > 0) {
-                invalidFileCount += 1;
-                rows.push(...fileRows);
-            }
-        } catch (error) {
-            invalidFileCount += 1;
-            rows.push({
-                allCapsHints: [],
-                arabic: null,
-                arabicLeakHints: [],
-                baseTranslation: null,
-                errorTypes: ['file_error'],
-                filePath,
-                id: null,
-                messages: [error instanceof Error ? error.message : 'Failed to validate translation file.'],
-                patchHighlights: [],
-                translation: null,
-                validationHighlightRanges: [],
-            });
-        }
-    }
-
-    return { invalidFileCount, rowCount: rows.length, rows };
+        return { invalidFileCount, rowCount: rows.length, rows };
+    });
 };

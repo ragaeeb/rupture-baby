@@ -67,8 +67,8 @@ const ProgressChartCard = ({ analytics }: { analytics: NonNullable<AnalyticsPage
     <div className="rounded-xl border bg-card p-4">
         <h2 className="font-semibold text-base">Translation Progress Over Time</h2>
         <p className="mt-1 text-muted-foreground text-sm">
-            Daily translation activity is bucketed by lastUpdatedAt across excerpts and headings, with a cumulative
-            completion line.
+            Translation activity is bucketed by lastUpdatedAt across excerpts and headings with a cumulative completion
+            line. Current granularity: {analytics?.timelineGranularity ?? '...'}.
         </p>
 
         {analytics && analytics.timeline.length > 0 ? (
@@ -135,7 +135,8 @@ const TranslatorDistributionCard = ({
         <div className="rounded-xl border bg-card p-4">
             <h2 className="font-semibold text-base">Translator Distribution</h2>
             <p className="mt-1 text-muted-foreground text-sm">
-                Counts translated segments across excerpts, headings, and footnotes by translator.
+                Counts translated segments across excerpts, headings, and footnotes by translator. Long-tail translators
+                are grouped into <code>Other</code> for readability.
             </p>
 
             {analytics && translatorChartData.length > 0 ? (
@@ -325,7 +326,11 @@ const AnalyticsPage = ({ data }: AnalyticsPageProps) => {
                         value={analytics?.uniqueTranslators.toLocaleString() ?? '...'}
                     />
                     <MetricCard
-                        helper={analytics ? `${analytics.timeline.length.toLocaleString()} active days` : undefined}
+                        helper={
+                            analytics
+                                ? `${analytics.timeline.length.toLocaleString()} active ${analytics.timelineGranularity}${analytics.timeline.length === 1 ? '' : 's'}`
+                                : undefined
+                        }
                         label="Total Segments"
                         value={analytics?.totalSegments.toLocaleString() ?? '...'}
                     />

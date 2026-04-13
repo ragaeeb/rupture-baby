@@ -3,6 +3,9 @@ import { createServerFn } from '@tanstack/react-start';
 import type {
     AnalyticsPageData,
     CompilationPlaybackSimulationResponse,
+    DashboardPageData,
+    DeleteTranslationsResponse,
+    PackCompilationResponse,
     SaveCompilationPlaybackResponse,
     TranslationAssistRequest,
     TranslationFileResponse,
@@ -20,6 +23,23 @@ const getNonEmptyString = (value: unknown, fieldName: string) => {
 const validateTranslationFileInput = (value: unknown) => ({
     relativePath: getNonEmptyString((value as { relativePath?: unknown })?.relativePath, 'relativePath'),
 });
+
+const validateTranslationFilesInput = (value: unknown) => {
+    if (typeof value !== 'object' || value === null) {
+        throw new Error('Request body must be a JSON object.');
+    }
+
+    const relativePaths = (value as { relativePaths?: unknown }).relativePaths;
+    if (!Array.isArray(relativePaths) || relativePaths.length === 0) {
+        throw new Error('Field "relativePaths" must be a non-empty array.');
+    }
+
+    return {
+        relativePaths: relativePaths.map((relativePath, index) =>
+            getNonEmptyString(relativePath, `relativePaths[${index}]`),
+        ),
+    };
+};
 
 const validatePromptInput = (value: unknown) => ({
     content:
@@ -56,6 +76,25 @@ const validatePatchInput = (value: unknown) => {
         patch: candidate.patch,
         patchMetadata: candidate.patchMetadata,
         relativePath: getNonEmptyString(candidate.relativePath, 'relativePath'),
+    };
+};
+
+const validateSkipInput = (value: unknown) => {
+    if (typeof value !== 'object' || value === null) {
+        throw new Error('Request body must be a JSON object.');
+    }
+
+    const candidate = value as { excerptId?: unknown; relativePath?: unknown; skipped?: unknown };
+
+    return {
+        excerptId: getNonEmptyString(candidate.excerptId, 'excerptId'),
+        relativePath: getNonEmptyString(candidate.relativePath, 'relativePath'),
+        skipped:
+            typeof candidate.skipped === 'boolean'
+                ? candidate.skipped
+                : (() => {
+                      throw new Error('Field "skipped" must be a boolean.');
+                  })(),
     };
 };
 
@@ -105,6 +144,13 @@ export const fetchBrowseShellData = createServerFn({ method: 'GET' }).handler(as
     return getBrowseShellData();
 });
 
+export const fetchDashboardStatsData = createServerFn({ method: 'GET' }).handler(
+    async (): Promise<DashboardPageData> => {
+        const { getDashboardPageData } = await import('@/lib/app-services');
+        return getDashboardPageData();
+    },
+);
+
 export const fetchAnalyticsPageData = createServerFn({ method: 'GET' }).handler(
     async (): Promise<AnalyticsPageData> => {
         const { getAnalyticsPageData } = await import('@/lib/app-services');
@@ -141,6 +187,11 @@ export const saveCompilationPlaybackData = createServerFn({ method: 'POST' }).ha
     },
 );
 
+export const packCompilationFileData = createServerFn({ method: 'POST' }).handler(async (): Promise<PackCompilationResponse> => {
+    const { packCompilationFileResponse } = await import('@/lib/app-services');
+    return packCompilationFileResponse();
+});
+
 export const savePromptSelection = createServerFn({ method: 'POST' })
     .inputValidator(validatePromptInput)
     .handler(async ({ data }) => {
@@ -162,11 +213,25 @@ export const commitTranslationPatch = createServerFn({ method: 'POST' })
         return writeTranslationPatch(data.relativePath, data.excerptId, data.patch, data.patchMetadata);
     });
 
+export const setTranslationSkip = createServerFn({ method: 'POST' })
+    .inputValidator(validateSkipInput)
+    .handler(async ({ data }): Promise<TranslationFileResponse> => {
+        const { setTranslationSkipResponse } = await import('@/lib/app-services');
+        return setTranslationSkipResponse(data.relativePath, data.excerptId, data.skipped);
+    });
+
 export const deleteTranslationFile = createServerFn({ method: 'POST' })
     .inputValidator(validateTranslationFileInput)
     .handler(async ({ data }) => {
         const { deleteTranslationFileResponse } = await import('@/lib/app-services');
         return deleteTranslationFileResponse(data.relativePath);
+    });
+
+export const deleteTranslationFiles = createServerFn({ method: 'POST' })
+    .inputValidator(validateTranslationFilesInput)
+    .handler(async ({ data }): Promise<DeleteTranslationsResponse> => {
+        const { deleteTranslationFilesResponse } = await import('@/lib/app-services');
+        return deleteTranslationFilesResponse(data.relativePaths);
     });
 
 export const requestArabicLeakCorrections = createServerFn({ method: 'POST' })

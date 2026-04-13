@@ -13,30 +13,46 @@ import {
 } from '@/components/ui/dialog';
 
 type DeleteConfirmDialogProps = {
-    fileName: string;
+    fileNames: string[];
+    title?: string;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onConfirm: () => void;
     isDeleting: boolean;
+    confirmLabel?: string;
 };
 
 export const DeleteConfirmDialog = ({
-    fileName,
+    fileNames,
+    title,
     open,
     onOpenChange,
     onConfirm,
     isDeleting,
+    confirmLabel,
 }: DeleteConfirmDialogProps) => {
+    const isMultiple = fileNames.length > 1;
+    const resolvedTitle = title ?? (isMultiple ? 'Delete Files' : 'Delete File');
+    const resolvedConfirmLabel = confirmLabel ?? 'Delete';
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Delete File</DialogTitle>
+                    <DialogTitle>{resolvedTitle}</DialogTitle>
                     <DialogDescription className="space-y-2">
-                        <p>Are you sure you want to delete this file?</p>
-                        <p className="break-all rounded-md bg-muted px-3 py-2 font-mono text-foreground text-xs">
-                            {fileName}
+                        <p>
+                            {isMultiple
+                                ? `Are you sure you want to delete these ${fileNames.length} files?`
+                                : 'Are you sure you want to delete this file?'}
                         </p>
+                        <div className="max-h-48 space-y-2 overflow-y-auto rounded-md bg-muted px-3 py-2">
+                            {fileNames.map((fileName) => (
+                                <p key={fileName} className="break-all font-mono text-foreground text-xs">
+                                    {fileName}
+                                </p>
+                            ))}
+                        </div>
                         <p>This action cannot be undone.</p>
                     </DialogDescription>
                 </DialogHeader>
@@ -50,7 +66,7 @@ export const DeleteConfirmDialog = ({
                         Cancel
                     </Button>
                     <Button className="sm:min-w-24" variant="destructive" onClick={onConfirm} disabled={isDeleting}>
-                        {isDeleting ? 'Deleting...' : 'Delete'}
+                        {isDeleting ? 'Deleting...' : resolvedConfirmLabel}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -85,7 +101,7 @@ export const DeleteButton = ({ fileName, onDelete }: DeleteButtonProps) => {
                 Delete
             </Button>
             <DeleteConfirmDialog
-                fileName={fileName}
+                fileNames={[fileName]}
                 open={isDeleteDialogOpen}
                 onOpenChange={setIsDeleteDialogOpen}
                 onConfirm={handleDelete}

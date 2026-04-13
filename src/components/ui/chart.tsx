@@ -112,6 +112,8 @@ const ChartLegendEntry = ({ item, nameKey }: { item: ChartDatum; nameKey?: strin
 export const ChartContainer = React.forwardRef<HTMLDivElement, ChartContainerProps>(
     ({ children, className, config, style, ...props }, ref) => {
         const [isMounted, setIsMounted] = React.useState(false);
+        const [size, setSize] = React.useState({ height: 0, width: 0 });
+        const localRef = React.useRef<HTMLDivElement | null>(null);
         const cssVars = Object.fromEntries(
             Object.entries(config).map(([key, value]) => [
                 `--color-${key}`,
@@ -123,15 +125,57 @@ export const ChartContainer = React.forwardRef<HTMLDivElement, ChartContainerPro
             setIsMounted(true);
         }, []);
 
+        React.useEffect(() => {
+            const element = localRef.current;
+            if (!element || typeof ResizeObserver === 'undefined') {
+                return;
+            }
+
+            const updateSize = () => {
+                const nextWidth = element.clientWidth;
+                const nextHeight = element.clientHeight;
+                setSize((current) =>
+                    current.width === nextWidth && current.height === nextHeight
+                        ? current
+                        : { height: nextHeight, width: nextWidth },
+                );
+            };
+
+            updateSize();
+            const observer = new ResizeObserver(() => {
+                updateSize();
+            });
+            observer.observe(element);
+
+            return () => {
+                observer.disconnect();
+            };
+        }, []);
+
+        const setRefs = (node: HTMLDivElement | null) => {
+            localRef.current = node;
+
+            if (typeof ref === 'function') {
+                ref(node);
+                return;
+            }
+
+            if (ref) {
+                ref.current = node;
+            }
+        };
+
+        const canRenderChart = isMounted && size.width > 0 && size.height > 0;
+
         return (
             <ChartContext.Provider value={{ config }}>
                 <div
-                    ref={ref}
+                    ref={setRefs}
                     className={cn('relative min-w-0', className)}
                     style={{ ...cssVars, ...style }}
                     {...props}
                 >
-                    {isMounted ? (
+                    {canRenderChart ? (
                         <ResponsiveContainer width="100%" height="100%">
                             {children}
                         </ResponsiveContainer>

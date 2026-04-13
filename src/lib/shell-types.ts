@@ -68,6 +68,7 @@ export type CompilationAnalyticsResponse = {
         label: string;
         translated: number;
     }>;
+    timelineGranularity: 'day' | 'month' | 'week';
     totalSegments: number;
     translatedSegments: number;
     translators: Array<{ count: number; id: string; label: string; percent: number }>;
@@ -97,6 +98,12 @@ export type CompilationPlaybackSimulationResponse = {
 };
 
 export type SaveCompilationPlaybackResponse = { appliedExcerptCount: number; outputPath: string };
+export type PackCompilationResponse = {
+    compressedSizeBytes: number;
+    outputPath: string;
+    sizeBytes: number;
+    sourcePath: string;
+};
 
 export type InvalidExcerptRow = {
     allCapsHints: string[];
@@ -148,11 +155,13 @@ export type AppSettingsResponse = { providers: AssistProviderOption[]; selectedA
 
 export type BrowseShellData = {
     meta: AppMetaResponse | null;
-    stats: DashboardStatsResponse | null;
-    statsError: string | null;
     tree: TranslationTreeResponse | null;
     treeError: string | null;
+    translationStats: TranslationStats | null;
+    translationStatsError: string | null;
 };
+
+export type DashboardPageData = { stats: DashboardStatsResponse | null; statsError: string | null };
 
 export type AnalyticsPageData = { analytics: CompilationAnalyticsResponse | null; error: string | null };
 
@@ -169,6 +178,7 @@ export type SettingsPageData = {
 };
 
 export type DeleteTranslationResponse = { deletedPath: string; success: true };
+export type DeleteTranslationsResponse = { deletedPaths: string[]; success: true };
 
 export type TranslationCorrectionExcerpt = {
     arabic: string;

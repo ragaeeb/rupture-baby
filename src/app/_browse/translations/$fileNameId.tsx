@@ -5,12 +5,14 @@ import { ConversationView } from '@/components/conversation-view';
 import { DeleteButton } from '@/components/delete-button';
 import { TranslationTableView } from '@/components/translations/translation-table-view';
 import { getStoredAssistProvider } from '@/lib/assist-provider-storage';
+import { storeArabicLeakCorrections } from '@/lib/arabic-leak-storage';
 import { parseTranslationRouteSearch, pickBrowseFilters } from '@/lib/browse-search';
 import {
     commitTranslationPatch,
     deleteTranslationFile,
     fetchTranslationFileData,
     requestArabicLeakCorrections,
+    setTranslationSkip,
 } from '@/lib/server-functions';
 import type { TranslationFileResponse } from '@/lib/shell-types';
 import {
@@ -50,6 +52,8 @@ function TranslationFileContent() {
     const [fixError, setFixError] = useState<string | null>(null);
     const [isFixingErrors, setIsFixingErrors] = useState(false);
     const [isCommitting, setIsCommitting] = useState(false);
+    const [skippingRowId, setSkippingRowId] = useState<string | null>(null);
+    const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const view = isFileViewMode(search.view ?? null) ? (search.view ?? 'table') : 'table';
     const filePath = fileData.relativePath;
 
@@ -59,6 +63,8 @@ function TranslationFileContent() {
         setFixError(null);
         setIsFixingErrors(false);
         setIsCommitting(false);
+        setSkippingRowId(null);
+        setSelectedRowIds([]);
     }, [fileData.content]);
 
     let conversation = null;
@@ -73,6 +79,19 @@ function TranslationFileContent() {
     const patchedConversation = buildPatchedConversation(conversation, pendingEdits);
     const fileName = filePath.split('/').at(-1) ?? 'file.json';
     const normalizedJsonViewValue = patchedConversation ?? conversation;
+
+    useEffect(() => {
+        if (!tableModel) {
+            setSelectedRowIds((currentIds) => (currentIds.length === 0 ? currentIds : []));
+            return;
+        }
+
+        const validRowIds = new Set(tableModel.rows.map((row) => row.id));
+        setSelectedRowIds((currentIds) => {
+            const nextIds = currentIds.filter((id) => validRowIds.has(id));
+            return nextIds.length === currentIds.length ? currentIds : nextIds;
+        });
+    }, [tableModel]);
 
     const handleDraftChange = (excerptId: string, originalText: string, nextText: string) => {
         setPendingEdits((currentEdits) => updatePendingEdits(currentEdits, excerptId, originalText, nextText));
@@ -96,23 +115,18 @@ function TranslationFileContent() {
             let updatedRowCount = 0;
 
             for (const task of ['arabic_leak_correction', 'all_caps_correction'] as const) {
-                const currentModel = buildTranslationTableModel(conversation, nextEdits, filePath);
-                const excerpts =
+                let currentModel = buildTranslationTableModel(conversation, nextEdits, filePath);
+                let excerpts =
                     task === 'arabic_leak_correction'
-                        ? currentModel?.arabicLeakExcerpts ?? []
-                        : currentModel?.allCapsExcerpts ?? [];
+                        ? (currentModel?.arabicLeakExcerpts ?? [])
+                        : (currentModel?.allCapsExcerpts ?? []);
 
                 if (excerpts.length === 0) {
                     continue;
                 }
 
                 const response = await requestArabicLeakCorrections({
-                    data: {
-                        excerpts,
-                        providerId: getStoredAssistProvider() ?? undefined,
-                        scope: 'file',
-                        task,
-                    },
+                    data: { excerpts, providerId: getStoredAssistProvider() ?? undefined, scope: 'file', task },
                 });
 
                 const result =
@@ -135,6 +149,10 @@ function TranslationFileContent() {
                 nextEdits = result.nextEdits;
                 issues.push(...result.issues);
                 updatedRowCount += result.updatedRowCount;
+
+                if (task === 'arabic_leak_correction' && response.corrections.length > 0) {
+                    storeArabicLeakCorrections({ corrections: response.corrections, patchMetadata: response.patchMetadata });
+                }
             }
 
             if (updatedRowCount === 0) {
@@ -193,6 +211,99 @@ function TranslationFileContent() {
         await navigate({ search: pickBrowseFilters(search), to: '/' });
     };
 
+    const handleToggleSkip = async (excerptId: string, skipped: boolean) => {
+        if (skippingRowId) {
+            return;
+        }
+
+        setSkippingRowId(excerptId);
+        try {
+            const latestFile = await setTranslationSkip({ data: { excerptId, relativePath: filePath, skipped } });
+
+            const nextContent = mergePersistedRuptureMeta(content, latestFile.content);
+            startTransition(() => {
+                setContent(nextContent);
+                setPendingEdits((currentEdits) => {
+                    if (!(excerptId in currentEdits)) {
+                        return currentEdits;
+                    }
+
+                    const nextEdits = { ...currentEdits };
+                    delete nextEdits[excerptId];
+                    return nextEdits;
+                });
+                setSelectedRowIds((currentIds) => currentIds.filter((id) => id !== excerptId));
+            });
+            await router.invalidate({ sync: true });
+        } catch (error) {
+            console.error('Failed to update skipped excerpt state', error);
+        } finally {
+            setSkippingRowId(null);
+        }
+    };
+
+    const handleToggleSelectRow = (excerptId: string, checked: boolean) => {
+        setSelectedRowIds((currentIds) =>
+            checked
+                ? currentIds.includes(excerptId)
+                    ? currentIds
+                    : [...currentIds, excerptId]
+                : currentIds.filter((id) => id !== excerptId),
+        );
+    };
+
+    const handleToggleSelectAllRows = (checked: boolean) => {
+        setSelectedRowIds(checked ? (tableModel?.rows.map((row) => row.id) ?? []) : []);
+    };
+
+    const handleBulkSetSkip = async (skipped: boolean) => {
+        if (selectedRowIds.length === 0 || skippingRowId || !tableModel) {
+            return;
+        }
+
+        setSkippingRowId('__bulk__');
+        try {
+            let latestFile: TranslationFileResponse | null = null;
+            const targetRows = tableModel.rows.filter(
+                (row) => selectedRowIds.includes(row.id) && row.isSkipped !== skipped,
+            );
+
+            for (const row of targetRows) {
+                latestFile = await setTranslationSkip({ data: { excerptId: row.id, relativePath: filePath, skipped } });
+            }
+
+            if (latestFile) {
+                const nextContent = mergePersistedRuptureMeta(content, latestFile.content);
+                const targetRowIds = new Set(targetRows.map((row) => row.id));
+                startTransition(() => {
+                    setContent(nextContent);
+                    setPendingEdits((currentEdits) =>
+                        Object.fromEntries(
+                            Object.entries(currentEdits).filter(([excerptId]) => !targetRowIds.has(excerptId)),
+                        ),
+                    );
+                    setSelectedRowIds([]);
+                });
+                await router.invalidate({ sync: true });
+            }
+        } catch (error) {
+            console.error('Failed to update skipped excerpt state in bulk', error);
+        } finally {
+            setSkippingRowId(null);
+        }
+    };
+
+    const sourceAlignmentNotice =
+        tableModel?.isSourceAlignedToResponse && tableModel.sourceIds.length > 0 ? (
+            <div className="rounded-md border border-amber-400/30 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                <p className="font-medium">The source excerpts in this file were aligned to the final response block.</p>
+                <p className="mt-1 text-muted-foreground">
+                    This usually means the prompt contains example or duplicated source sections before the real translation
+                    block.
+                </p>
+            </div>
+        ) : null;
+
     return (
         <div className="flex h-full min-h-0 flex-col gap-3">
             <div className="flex items-center justify-end gap-2">
@@ -241,7 +352,8 @@ function TranslationFileContent() {
                 <DeleteButton fileName={fileName} onDelete={handleFileDeleted} />
             </div>
 
-            <div className="flex-1 overflow-auto">
+            <div className={view === 'table' ? 'flex-1 min-h-0 overflow-hidden' : 'flex-1 min-h-0 overflow-auto'}>
+                {sourceAlignmentNotice}
                 {view === 'json' ? (
                     <pre className="h-full whitespace-pre-wrap break-words rounded-md bg-muted p-4 text-xs leading-5 [overflow-wrap:anywhere]">
                         {JSON.stringify(content, null, 2)}
@@ -265,13 +377,20 @@ function TranslationFileContent() {
                         </div>
                     )
                 ) : (
-                <TranslationTableView
-                    arabicLeakFixError={fixError}
-                    isFixingArabicLeaks={isFixingErrors}
-                    model={tableModel}
-                    onAutoFixArabicLeaks={handleAutoFixErrors}
-                    onDraftChange={handleDraftChange}
-                />
+                    <TranslationTableView
+                        arabicLeakFixError={fixError}
+                        isFixingArabicLeaks={isFixingErrors}
+                        isUpdatingSkip={Boolean(skippingRowId)}
+                        model={tableModel}
+                        onAutoFixArabicLeaks={handleAutoFixErrors}
+                        onBulkSetSkip={handleBulkSetSkip}
+                        onDraftChange={handleDraftChange}
+                        onToggleSelectAll={handleToggleSelectAllRows}
+                        onToggleSelectRow={handleToggleSelectRow}
+                        onToggleSkip={handleToggleSkip}
+                        selectedRowIds={selectedRowIds}
+                        skippingRowId={skippingRowId}
+                    />
                 )}
             </div>
         </div>

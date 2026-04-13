@@ -12,7 +12,7 @@ export const Route = createFileRoute('/_browse')({
 });
 
 function BrowseLayoutComponent() {
-    const { meta, stats, tree } = Route.useLoaderData();
+    const { meta, translationStats, tree } = Route.useLoaderData();
     const pathname = useLocation({ select: (location) => location.pathname });
 
     const selectedFilePath = pathname.startsWith('/translations/')
@@ -31,7 +31,7 @@ function BrowseLayoutComponent() {
                 entries={tree?.entries ?? []}
                 rootName={tree?.rootName ?? 'translations'}
                 selectedFilePath={selectedFilePath}
-                translationStats={stats?.translationStats}
+                translationStats={translationStats}
             />
             <SidebarInset>
                 <RouteLoadingIndicator />

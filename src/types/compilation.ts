@@ -1,6 +1,6 @@
 export type ExcerptType = 'book' | 'chapter';
 
-export type AITranslator = 879 | 890 | 893 | 895 | 900 | 901 | 903;
+export type AITranslator = 879 | 890 | 893 | 895 | 900 | 901 | 903 | 904;
 
 export type AITranslation = { text?: string; translator?: AITranslator; lastUpdatedAt?: number };
 export type PatchedTranslationMetadata = {

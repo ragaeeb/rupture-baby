@@ -27,6 +27,17 @@ describe('validateTranslationResponse', () => {
         );
     });
 
+    it('should flag multiple Arabic leak blocks in the same segment', () => {
+        const result = validateTranslationResponse(
+            [{ id: 'P1', text: 'نص عربي' }],
+            'P1 - First paragraph ends with مرحبا.\n\nSecond paragraph ends with مع السلامة.',
+        );
+
+        const arabicLeakErrors = result.errors.filter((error) => error.type === 'arabic_leak');
+        expect(arabicLeakErrors).toHaveLength(2);
+        expect(arabicLeakErrors.map((error) => error.matchText)).toEqual(['مرحبا', 'مع السلامة']);
+    });
+
     it('should flag the full all-caps span instead of fragmenting it into threshold-sized chunks', () => {
         const result = validateTranslationResponse(
             [{ id: 'P1', text: 'نص عربي' }],

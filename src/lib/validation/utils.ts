@@ -424,34 +424,26 @@ const validateArabicLeak = (context: ValidationContext): ValidationError[] => {
 
     for (const marker of context.markers) {
         const text = context.normalizedResponse.slice(marker.translationStart, marker.translationEnd);
-        let longestMatch: RegExpMatchArray | undefined;
         for (const match of text.matchAll(arabicPhrasePattern)) {
             const matchText = match[0].replace(/ﷺ/g, '').trim();
             if (!matchText) {
                 continue;
             }
-            if (!longestMatch || matchText.length > longestMatch[0].replace(/ﷺ/g, '').trim().length) {
-                longestMatch = match;
-            }
+            const idx = match.index ?? 0;
+            const normalizedStart = marker.translationStart + idx;
+            const normalizedEnd = normalizedStart + match[0].length;
+            errors.push(
+                makeErrorFromNormalized(
+                    context,
+                    'arabic_leak',
+                    `Arabic script detected: "${matchText}"`,
+                    matchText,
+                    normalizedStart,
+                    normalizedEnd,
+                    marker.id,
+                ),
+            );
         }
-        if (!longestMatch) {
-            continue;
-        }
-        const matchText = longestMatch[0].replace(/ﷺ/g, '').trim();
-        const idx = longestMatch.index ?? 0;
-        const normalizedStart = marker.translationStart + idx;
-        const normalizedEnd = normalizedStart + longestMatch[0].length;
-        errors.push(
-            makeErrorFromNormalized(
-                context,
-                'arabic_leak',
-                `Arabic script detected: "${matchText}"`,
-                matchText,
-                normalizedStart,
-                normalizedEnd,
-                marker.id,
-            ),
-        );
     }
 
     return errors;

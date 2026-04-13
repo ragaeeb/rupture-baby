@@ -10,6 +10,7 @@ export const TRANSLATION_MODELS: readonly TranslationModel[] = [
     { id: '900', label: 'GPT 5.4 Thinking', provider: LLMProvider.OpenAI },
     { id: '901', label: 'Gemini 3.1 Pro', provider: LLMProvider.Gemini },
     { id: '903', label: 'GPT 5.4 Pro', provider: LLMProvider.OpenAI },
+    { id: '904', label: 'GPT 5.4 Thinking Mini', provider: LLMProvider.OpenAI },
 ];
 
 export const DEFAULT_MODEL_ID = TRANSLATION_MODELS[0].id;

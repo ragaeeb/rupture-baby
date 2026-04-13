@@ -1,12 +1,14 @@
-import { createFileRoute, getRouteApi } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 
 import DashboardPage from '@/components/dashboard-page';
+import { fetchDashboardStatsData } from '@/lib/server-functions';
 
-const browseRouteApi = getRouteApi('/_browse');
-
-export const Route = createFileRoute('/_browse/')({ component: DashboardIndexComponent });
+export const Route = createFileRoute('/_browse/')({
+    component: DashboardIndexComponent,
+    loader: async () => fetchDashboardStatsData(),
+});
 
 function DashboardIndexComponent() {
-    const { stats, statsError } = browseRouteApi.useLoaderData();
+    const { stats, statsError } = Route.useLoaderData();
     return <DashboardPage stats={stats} statsError={statsError} />;
 }

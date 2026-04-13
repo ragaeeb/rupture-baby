@@ -4,14 +4,18 @@ import { getAppSettings } from '@/lib/app-settings';
 import { getCompilationAnalytics } from '@/lib/compilation-analytics';
 import { getCompilationPlaybackSimulation, saveCompilationPlayback } from '@/lib/compilation-playback';
 import { getCompilationStats } from '@/lib/compilation-stats';
+import { withPerfSpan } from '@/lib/perf-log';
 import { getPromptOptions, getSelectedPrompt, setSelectedPrompt } from '@/lib/prompt-state';
 import type {
     AnalyticsPageData,
     BrowseShellData,
     CompilationPlaybackSimulationResponse,
+    DashboardPageData,
     DashboardStatsResponse,
     DeleteTranslationResponse,
+    DeleteTranslationsResponse,
     InvalidExcerptsResponse,
+    PackCompilationResponse,
     PromptStateResponse,
     PromptsPageData,
     SaveCompilationPlaybackResponse,
@@ -26,17 +30,32 @@ import {
     getInvalidExcerpts,
     getTranslationStats,
     getTranslationTree,
+    writeTranslationSkip,
 } from '@/lib/translations-browser';
 import { getAppMeta } from './app-meta';
 import { getErrorMessage } from './error-utils';
 
 export const getDashboardStatsResponse = async (): Promise<DashboardStatsResponse> => {
-    const [dashboardPayload, translationStats, compilationStats] = await Promise.all([
-        getDashboardStats(),
-        getTranslationStats(),
-        getCompilationStats().catch(() => null),
-    ]);
-    return { ...dashboardPayload, compilationStats, translationStats };
+    return withPerfSpan('app-services', 'get_dashboard_stats_response', async () => {
+        const [dashboardPayload, translationStats, compilationStats] = await Promise.all([
+            getDashboardStats(),
+            getTranslationStats(),
+            getCompilationStats().catch(() => null),
+        ]);
+        return { ...dashboardPayload, compilationStats, translationStats };
+    });
+};
+
+export const getTranslationStatsResponse = async () => getTranslationStats();
+
+export const getDashboardPageData = async (): Promise<DashboardPageData> => {
+    return withPerfSpan('app-services', 'get_dashboard_page_data', async () => {
+        try {
+            return { stats: await getDashboardStatsResponse(), statsError: null };
+        } catch (error) {
+            return { stats: null, statsError: getErrorMessage(error, 'Failed to load dashboard stats.') };
+        }
+    });
 };
 
 export const getPromptStateResponse = async (): Promise<PromptStateResponse> => {
@@ -59,25 +78,27 @@ export const setPromptStateResponse = async (promptId: string, content: string) 
 };
 
 export const getBrowseShellData = async (): Promise<BrowseShellData> => {
-    const [metaResult, treeResult, statsResult] = await Promise.allSettled([
-        getAppMeta(),
-        getTranslationTree(),
-        getDashboardStatsResponse(),
-    ]);
+    return withPerfSpan('app-services', 'get_browse_shell_data', async () => {
+        const [metaResult, treeResult, translationStatsResult] = await Promise.allSettled([
+            getAppMeta(),
+            getTranslationTree(),
+            getTranslationStatsResponse(),
+        ]);
 
-    return {
-        meta: metaResult.status === 'fulfilled' ? metaResult.value : null,
-        stats: statsResult.status === 'fulfilled' ? statsResult.value : null,
-        statsError:
-            statsResult.status === 'rejected'
-                ? getErrorMessage(statsResult.reason, 'Failed to load dashboard stats.')
-                : null,
-        tree: treeResult.status === 'fulfilled' ? treeResult.value : null,
-        treeError:
-            treeResult.status === 'rejected'
-                ? getErrorMessage(treeResult.reason, 'Failed to load translation files.')
-                : null,
-    };
+        return {
+            meta: metaResult.status === 'fulfilled' ? metaResult.value : null,
+            translationStats: translationStatsResult.status === 'fulfilled' ? translationStatsResult.value : null,
+            translationStatsError:
+                translationStatsResult.status === 'rejected'
+                    ? getErrorMessage(translationStatsResult.reason, 'Failed to load translation stats.')
+                    : null,
+            tree: treeResult.status === 'fulfilled' ? treeResult.value : null,
+            treeError:
+                treeResult.status === 'rejected'
+                    ? getErrorMessage(treeResult.reason, 'Failed to load translation files.')
+                    : null,
+        };
+    });
 };
 
 export const getPromptsPageData = async (): Promise<PromptsPageData> => {
@@ -118,15 +139,38 @@ export const getCompilationPlaybackSimulationResponse = async (): Promise<Compil
 export const saveCompilationPlaybackResponse = async (): Promise<SaveCompilationPlaybackResponse> =>
     saveCompilationPlayback();
 
-export const getAnalyticsPageData = async (): Promise<AnalyticsPageData> => {
-    try {
-        return { analytics: await getCompilationAnalytics(), error: null };
-    } catch (error) {
-        return { analytics: null, error: getErrorMessage(error, 'Failed to load analytics.') };
+export const packCompilationFileResponse = async (): Promise<PackCompilationResponse> => {
+    const compilationStats = await getCompilationStats();
+    if (compilationStats.untranslatedSegments > 0) {
+        throw new Error('Compilation still has untranslated segments and cannot be packed yet.');
     }
+
+    const { packCompilationFile } = await import('./compilation-pack');
+    return packCompilationFile();
+};
+
+export const getAnalyticsPageData = async (): Promise<AnalyticsPageData> => {
+    return withPerfSpan('app-services', 'get_analytics_page_data', async () => {
+        try {
+            return { analytics: await getCompilationAnalytics(), error: null };
+        } catch (error) {
+            return { analytics: null, error: getErrorMessage(error, 'Failed to load analytics.') };
+        }
+    });
 };
 
 export const deleteTranslationFileResponse = async (relativePath: string): Promise<DeleteTranslationResponse> => {
     await deleteTranslationJsonFile(relativePath);
     return { deletedPath: relativePath, success: true };
 };
+
+export const deleteTranslationFilesResponse = async (relativePaths: string[]): Promise<DeleteTranslationsResponse> => {
+    for (const relativePath of relativePaths) {
+        await deleteTranslationJsonFile(relativePath);
+    }
+
+    return { deletedPaths: relativePaths, success: true };
+};
+
+export const setTranslationSkipResponse = async (relativePath: string, excerptId: string, skipped: boolean) =>
+    writeTranslationSkip(relativePath, excerptId, skipped);

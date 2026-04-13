@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router';
 
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
+import { PackCompilationButton } from '@/components/pack-compilation-button';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { THINKING_TIME_BUCKETS } from '@/lib/reasoning-time';
@@ -8,6 +9,9 @@ import type { DashboardStatsResponse } from '@/lib/shell-types';
 import { formatUnixSecondsToUtcString } from '@/lib/time';
 
 type DashboardPageProps = { stats: DashboardStatsResponse | null; statsError: string | null };
+
+export const canPackCompilation = (compilationStats: DashboardStatsResponse['compilationStats']) =>
+    Boolean(compilationStats && compilationStats.untranslatedSegments === 0);
 
 const formatCheckedAt = (checkedAt: string | undefined) => {
     if (!checkedAt) {
@@ -40,7 +44,10 @@ type CompilationStatsCardProps = { compilationStats: DashboardStatsResponse['com
 
 const CompilationStatsCard = ({ compilationStats }: CompilationStatsCardProps) => (
     <div className="rounded-xl border bg-card p-4">
-        <h2 className="font-semibold text-base">Compilation Stats</h2>
+        <div className="flex items-start justify-between gap-3">
+            <h2 className="font-semibold text-base">Compilation Stats</h2>
+            {canPackCompilation(compilationStats) ? <PackCompilationButton /> : null}
+        </div>
         <div className="mt-3 grid gap-4 md:grid-cols-4">
             <div>
                 <p className="text-muted-foreground text-xs">Untranslated</p>

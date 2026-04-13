@@ -6,7 +6,11 @@ import type {
     ArabicLeakCorrection,
     ArabicLeakCorrectionExcerpt,
 } from './shell-types';
-import { getConversationSourceSegments, validateConversationExcerpts } from './translation-parser';
+import {
+    getConversationSourceSegments,
+    resolveConversationSourceSegments,
+    validateConversationExcerpts,
+} from './translation-parser';
 import {
     applyRupturePatchesToSegments,
     createRupturePatch,
@@ -34,6 +38,7 @@ export type TranslationRowData = {
     id: string;
     isDirty: boolean;
     isMissingTranslation: boolean;
+    isSkipped: boolean;
     hasPatch: boolean;
     patchHighlights: RuptureHighlight[];
     translatedText: string;
@@ -46,6 +51,7 @@ export type TranslationTableModel = {
     hasAlignmentErrors: boolean;
     hasPatches: boolean;
     isValid: boolean;
+    isSourceAlignedToResponse: boolean;
     patchedRowCount: number;
     responseIds: string[];
     rows: TranslationRowData[];
@@ -148,7 +154,7 @@ export const buildPatchedConversation = (
     }
 
     const baseTranslatedSegments = parseTranslationsInOrder(conversation.response);
-    const arabicSegments = getConversationSourceSegments(conversation);
+    const arabicSegments = getConversationSourceSegments(conversation, baseTranslatedSegments);
     const patchTargetSegments = arabicSegments.map((segment) => ({
         id: segment.id,
         text: baseTranslatedSegments.find((translated) => translated.id === segment.id)?.text ?? '',
@@ -202,7 +208,8 @@ export const buildTranslationTableModel = (
     }
 
     const baseTranslatedSegments = parseTranslationsInOrder(conversation.response);
-    const arabicSegments = getConversationSourceSegments(conversation);
+    const sourceResolution = resolveConversationSourceSegments(conversation, baseTranslatedSegments);
+    const arabicSegments = sourceResolution.segments;
     const baseTranslatedById = new Map(baseTranslatedSegments.map((segment) => [segment.id, segment.text] as const));
     const patchTargetSegments = arabicSegments.map((segment) => ({
         id: segment.id,
@@ -214,11 +221,17 @@ export const buildTranslationTableModel = (
     const validation = validateConversationExcerpts({ ...conversation, response: patchedResponse });
     const { excerpts, validationErrors } = validation;
     const translatedById = new Map(translatedSegments.map((segment) => [segment.id, segment.text] as const));
+    const skippedExcerptIds = new Set(
+        Array.isArray(conversation.__rupture?.skip)
+            ? conversation.__rupture.skip.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+            : [],
+    );
+    const visibleValidationErrors = validationErrors.filter((error) => !error.id || !skippedExcerptIds.has(error.id));
     const errorsById = new Map<string, ValidationError[]>();
     const patchesById = mergedPatches ?? {};
     const patchMetadataById = mergeRupturePatchMetadata(conversation.__rupture?.patchMetadata, pendingEdits);
 
-    for (const error of validationErrors) {
+    for (const error of visibleValidationErrors) {
         if (!error.id) {
             continue;
         }
@@ -243,6 +256,7 @@ export const buildTranslationTableModel = (
             id: segment.id,
             isDirty: segment.id in pendingEdits,
             isMissingTranslation: !excerpt && !translatedById.has(segment.id),
+            isSkipped: skippedExcerptIds.has(segment.id),
             patchHighlights: getRuptureDisplayHighlights(translatedText, patch, patchMetadata),
             translatedText,
             validationMessages: rowErrors.map((error) => error.message),
@@ -280,9 +294,10 @@ export const buildTranslationTableModel = (
                 ],
                 translation: row.translatedText,
             })),
-        hasAlignmentErrors: validationErrors.some((error) => ALIGNMENT_ERROR_TYPES.has(error.type)),
+        hasAlignmentErrors: visibleValidationErrors.some((error) => ALIGNMENT_ERROR_TYPES.has(error.type)),
         hasPatches: rows.some((row) => row.hasPatch),
-        isValid: validationErrors.length === 0,
+        isValid: visibleValidationErrors.length === 0,
+        isSourceAlignedToResponse: sourceResolution.alignedToResponse,
         patchedRowCount: rows.filter((row) => row.hasPatch).length,
         responseIds: translatedSegments.map((segment) => segment.id),
         rows,
@@ -294,7 +309,7 @@ export const applyArabicLeakCorrectionsToPendingEdits = (
     model: TranslationTableModel | null,
     currentEdits: PendingEditMap,
     corrections: ArabicLeakCorrection[],
-    metadata: RupturePatchMetadata,
+    metadata: RupturePatchMetadata | undefined,
     filePath: string,
 ) => {
     if (!model) {
@@ -338,10 +353,13 @@ export const applyArabicLeakCorrectionsToPendingEdits = (
             continue;
         }
 
-        nextEdits = updatePendingEdits(nextEdits, excerptId, row.baseTranslatedText, nextText, {
-            ...metadata,
-            highlights: rowHighlights,
-        });
+        nextEdits = updatePendingEdits(
+            nextEdits,
+            excerptId,
+            row.baseTranslatedText,
+            nextText,
+            metadata ? { ...metadata, highlights: rowHighlights } : undefined,
+        );
         updatedRowCount += 1;
     }
 
@@ -352,7 +370,7 @@ export const applyAllCapsCorrectionsToPendingEdits = (
     model: TranslationTableModel | null,
     currentEdits: PendingEditMap,
     corrections: AllCapsCorrection[],
-    metadata: RupturePatchMetadata,
+    metadata: RupturePatchMetadata | undefined,
     filePath: string,
 ) => {
     if (!model) {
@@ -396,10 +414,13 @@ export const applyAllCapsCorrectionsToPendingEdits = (
             continue;
         }
 
-        nextEdits = updatePendingEdits(nextEdits, excerptId, row.baseTranslatedText, nextText, {
-            ...metadata,
-            highlights: replacementResult.replacementHighlights,
-        });
+        nextEdits = updatePendingEdits(
+            nextEdits,
+            excerptId,
+            row.baseTranslatedText,
+            nextText,
+            metadata ? { ...metadata, highlights: replacementResult.replacementHighlights } : undefined,
+        );
         updatedRowCount += 1;
     }
 
