@@ -1,8 +1,8 @@
 import '@tanstack/react-start/server-only';
 
 import { createFileRoute } from '@tanstack/react-router';
-
 import { requestTranslationAssistResponse } from '@/lib/app-services';
+import { isAssistProviderId } from '@/lib/assist-provider-ids';
 import type { TranslationAssistRequest } from '@/lib/shell-types';
 
 const isValidAssistRequest = (value: unknown): value is TranslationAssistRequest => {
@@ -13,10 +13,7 @@ const isValidAssistRequest = (value: unknown): value is TranslationAssistRequest
     const candidate = value as Partial<TranslationAssistRequest>;
 
     return (
-        (typeof candidate.providerId === 'undefined' ||
-            candidate.providerId === 'hf' ||
-            candidate.providerId === 'gemini' ||
-            candidate.providerId === 'cloudflare') &&
+        (typeof candidate.providerId === 'undefined' || isAssistProviderId(candidate.providerId)) &&
         (candidate.scope === 'file' || candidate.scope === 'batch') &&
         (candidate.task === 'arabic_leak_correction' || candidate.task === 'all_caps_correction') &&
         Array.isArray(candidate.excerpts) &&
@@ -42,7 +39,7 @@ export const POST = async (request: Request) => {
         if (!isValidAssistRequest(body)) {
             return Response.json(
                 {
-                    error: 'Invalid translation assist request. Expected { providerId?: "hf" | "gemini" | "cloudflare", scope: "file" | "batch", task: "arabic_leak_correction" | "all_caps_correction", excerpts: [{ filePath, id, arabic, translation }] }.',
+                    error: 'Invalid translation assist request. Expected { providerId?: "hf" | "gemini" | "cloudflare" | "nvidia-glm47" | "nvidia-kimi-k2-thinking", scope: "file" | "batch", task: "arabic_leak_correction" | "all_caps_correction", excerpts: [{ filePath, id, arabic, translation }] }.',
                 },
                 { status: 400 },
             );

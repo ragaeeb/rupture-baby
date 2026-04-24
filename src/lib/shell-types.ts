@@ -1,6 +1,9 @@
+import type { AssistProviderId } from '@/lib/assist-provider-ids';
 import type { ThinkingTimeRange } from '@/lib/reasoning-time';
 import type { RuptureHighlight, RupturePatchMetadata } from '@/lib/translation-patches';
 import type { Range } from '@/lib/validation/types';
+
+export type { AssistProviderId } from '@/lib/assist-provider-ids';
 
 export type JsonValue = boolean | null | number | string | JsonValue[] | { [key: string]: JsonValue };
 
@@ -149,7 +152,6 @@ export type AppMetaResponse = {
 export type PromptOption = { content: string; id: string; name: string };
 
 export type PromptStateResponse = { options: PromptOption[]; selectedPromptContent: string; selectedPromptId: string };
-export type AssistProviderId = 'cloudflare' | 'gemini' | 'hf';
 export type AssistProviderOption = { id: AssistProviderId; isConfigured: boolean; label: string; model: string };
 export type AppSettingsResponse = { providers: AssistProviderOption[]; selectedAssistProvider: AssistProviderId };
 
@@ -209,7 +211,7 @@ export type TranslationAssistResponse = {
     model: string;
     modelVersion?: string;
     patchMetadata: RupturePatchMetadata;
-    provider: 'cloudflare' | 'google' | 'huggingface';
+    provider: 'cloudflare' | 'google' | 'huggingface' | 'nvidia';
     scope: TranslationAssistScope;
     task: TranslationAssistTask;
 };

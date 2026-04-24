@@ -19,7 +19,7 @@ It serves untranslated excerpts from a large compilation file, browses saved tra
 - provides a dashboard and sidebar-driven translation file browser
 - validates translated responses against source excerpt IDs and content rules
 - supports inline excerpt editing with staged local patches
-- supports Gemini-assisted Arabic leak correction
+- supports Arabic leak correction through Nvidia, Gemini, Hugging Face, and Cloudflare providers
 - persists excerpt patches atomically into translation files
 
 ## Main Concepts
@@ -85,20 +85,23 @@ Notes:
 - `patchMetadata` contains provenance and optional highlight ranges
 - writes are atomic: the server writes to a temp file and renames into place
 
-## Gemini Assistance
+## LLM Assistance
 
-Arabic leak auto-fix is currently powered by `@google/genai`.
+Arabic leak auto-fix can now run against multiple assist providers.
 
-Current provider/model:
+Current notable options:
 
-- provider: Google Gemini API
-- model: `gemini-3.1-flash-lite-preview`
+- NVIDIA GLM-4.7: `z-ai/glm4.7`
+- NVIDIA Kimi K2 Thinking: `moonshotai/kimi-k2-thinking`
+- Google Gemini API: `gemini-3.1-flash-lite-preview`
+- Hugging Face router: env-configured model
+- Cloudflare Workers AI: `@cf/meta/llama-3.3-70b-instruct-fp8-fast`
 
 Flow:
 
 1. the validator flags `arabic_leak` errors
 2. the table banner exposes a `Fix Arabic leaks` action
-3. Gemini returns structured `match` / `replacement` corrections
+3. the selected provider returns structured `match` / `replacement` corrections
 4. the app stages those corrections as local pending patches
 5. the user reviews them and clicks `Commit`
 6. the patch and its metadata are persisted to the translation file
@@ -141,16 +144,23 @@ Required:
 - `COMPILATION_FILE_PATH`
 - `TRANSLATIONS_DIR`
 
-Required for Gemini-assisted Arabic leak correction:
+Required for Nvidia-assisted Arabic leak correction:
+
+- `NVIDIA_API_KEY`
+
+Optional alternatives for other assist providers:
 
 - `GOOGLE_API_KEY`
+- `HF_MODEL_TOKEN`
+- `CLOUDFLARE_WORKERS_AI_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
 
 Example:
 
 ```bash
 COMPILATION_FILE_PATH=/Users/user/workspace/compilations/1119.json
 TRANSLATIONS_DIR=/Users/user/workspace/compilations/translations
-GOOGLE_API_KEY=your_google_api_key
+NVIDIA_API_KEY=your_nvidia_api_key
 ```
 
 ## Development
@@ -216,6 +226,7 @@ bun run lint
 - stream-json
 - Tailwind CSS
 - shadcn/ui primitives
+- NVIDIA Integrate API
 - Google GenAI SDK
 
 ## Repository

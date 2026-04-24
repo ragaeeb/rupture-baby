@@ -82,7 +82,7 @@ function SettingsPage() {
                             <div>
                                 <h2 className="font-semibold text-lg">LLM Provider</h2>
                                 <p className="mt-1 text-muted-foreground text-sm">
-                                    Choose which provider powers Arabic leak correction.
+                                    Choose which provider and model power Arabic leak correction.
                                 </p>
                             </div>
                         </div>

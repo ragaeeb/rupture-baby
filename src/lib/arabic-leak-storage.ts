@@ -1,23 +1,13 @@
 import type { ArabicLeakCorrection } from './shell-types';
-import type { RupturePatchMetadata } from './translation-patches';
+import { isLlmPatchSourceProvider, type RupturePatchMetadata } from './translation-patches';
 
 export const ARABIC_LEAK_STORAGE_KEY = 'rupture.arabicLeakCorrections';
 
-type ArabicLeakObservationMetadata = RupturePatchMetadata & {
-    excerptId: string;
-    filePath: string;
-    match: string;
-};
+type ArabicLeakObservationMetadata = RupturePatchMetadata & { excerptId: string; filePath: string; match: string };
 
-type ArabicLeakObservation = {
-    metadata: ArabicLeakObservationMetadata;
-    response: string;
-};
+type ArabicLeakObservation = { metadata: ArabicLeakObservationMetadata; response: string };
 
-type ArabicLeakCacheEntry = {
-    observations: ArabicLeakObservation[];
-    responses: string[];
-};
+type ArabicLeakCacheEntry = { observations: ArabicLeakObservation[]; responses: string[] };
 
 type ArabicLeakCacheMap = Record<string, ArabicLeakCacheEntry>;
 
@@ -38,10 +28,7 @@ const isArabicLeakObservationMetadata = (value: unknown): value is ArabicLeakObs
         typeof value.match === 'string' &&
         value.source.kind === 'llm' &&
         typeof value.source.model === 'string' &&
-        (value.source.provider === 'cloudflare' ||
-            value.source.provider === 'google' ||
-            value.source.provider === 'huggingface' ||
-            value.source.provider === 'openrouter') &&
+        isLlmPatchSourceProvider(value.source.provider) &&
         value.source.task === 'arabic_leak_correction' &&
         (typeof value.source.modelVersion === 'string' || typeof value.source.modelVersion === 'undefined')
     );
@@ -70,7 +57,9 @@ const readArabicLeakCache = (): ArabicLeakCacheMap => {
             }
 
             const responses = Array.isArray(entry.responses)
-                ? entry.responses.filter((response): response is string => typeof response === 'string' && response.trim().length > 0)
+                ? entry.responses.filter(
+                      (response): response is string => typeof response === 'string' && response.trim().length > 0,
+                  )
                 : [];
             const observations = Array.isArray(entry.observations)
                 ? entry.observations
@@ -81,10 +70,7 @@ const readArabicLeakCache = (): ArabicLeakCacheMap => {
                               observation.response.trim().length > 0 &&
                               isArabicLeakObservationMetadata(observation.metadata),
                       )
-                      .map((observation) => ({
-                          metadata: observation.metadata,
-                          response: observation.response.trim(),
-                      }))
+                      .map((observation) => ({ metadata: observation.metadata, response: observation.response.trim() }))
                 : [];
 
             if (responses.length === 0 && observations.length === 0) {
@@ -96,7 +82,12 @@ const readArabicLeakCache = (): ArabicLeakCacheMap => {
                     normalizedMatch,
                     {
                         observations,
-                        responses: [...new Set([...responses.map((response) => response.trim()), ...observations.map((observation) => observation.response)])],
+                        responses: [
+                            ...new Set([
+                                ...responses.map((response) => response.trim()),
+                                ...observations.map((observation) => observation.response),
+                            ]),
+                        ],
                     },
                 ] as const,
             ];

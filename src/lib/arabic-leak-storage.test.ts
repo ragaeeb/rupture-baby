@@ -5,12 +5,7 @@ import type { RupturePatchMetadata } from './translation-patches';
 
 const makeMetadata = (appliedAt: string, model: string): RupturePatchMetadata => ({
     appliedAt,
-    source: {
-        kind: 'llm',
-        model,
-        provider: 'google',
-        task: 'arabic_leak_correction',
-    },
+    source: { kind: 'llm', model, provider: 'nvidia', task: 'arabic_leak_correction' },
 });
 
 const originalWindow = globalThis.window;
@@ -49,7 +44,13 @@ describe('arabic leak storage', () => {
         });
 
         const rawCache = JSON.parse(storage.get(ARABIC_LEAK_STORAGE_KEY) ?? '{}') as {
-            راجع?: { observations?: Array<{ metadata: { excerptId: string; filePath: string; match: string }; response: string }>; responses?: string[] };
+            راجع?: {
+                observations?: Array<{
+                    metadata: { excerptId: string; filePath: string; match: string };
+                    response: string;
+                }>;
+                responses?: string[];
+            };
         };
 
         expect(rawCache.راجع?.responses).toEqual(['see above']);
@@ -82,7 +83,13 @@ describe('arabic leak storage', () => {
         });
 
         const rawCache = JSON.parse(storage.get(ARABIC_LEAK_STORAGE_KEY) ?? '{}') as {
-            'نص عربي'?: { observations?: Array<{ metadata: { excerptId: string; filePath: string; match: string }; response: string }>; responses?: string[] };
+            'نص عربي'?: {
+                observations?: Array<{
+                    metadata: { excerptId: string; filePath: string; match: string };
+                    response: string;
+                }>;
+                responses?: string[];
+            };
         };
 
         expect(rawCache['نص عربي']?.responses).toEqual(['first response', 'different response']);

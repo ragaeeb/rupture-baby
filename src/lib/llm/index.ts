@@ -8,6 +8,10 @@ import {
 } from '@/lib/llm/providers/cloudflare';
 import { GEMINI_PROVIDER_ID, getGoogleAssistModel, googleTranslationAssistProvider } from '@/lib/llm/providers/google';
 import { huggingFaceTranslationAssistProvider } from '@/lib/llm/providers/huggingface';
+import {
+    nvidiaGlm47TranslationAssistProvider,
+    nvidiaKimiK2ThinkingTranslationAssistProvider,
+} from '@/lib/llm/providers/nvidia';
 import type { TranslationAssistProvider } from '@/lib/llm/types';
 import type { AssistProviderId } from '@/lib/shell-types';
 
@@ -15,7 +19,9 @@ const PROVIDERS = {
     cloudflare: cloudflareTranslationAssistProvider,
     gemini: googleTranslationAssistProvider,
     hf: huggingFaceTranslationAssistProvider,
-} as const satisfies Record<string, TranslationAssistProvider>;
+    'nvidia-glm47': nvidiaGlm47TranslationAssistProvider,
+    'nvidia-kimi-k2-thinking': nvidiaKimiK2ThinkingTranslationAssistProvider,
+} as const satisfies Record<AssistProviderId, TranslationAssistProvider>;
 
 export const getTranslationAssistProvider = async (
     providerId?: AssistProviderId,

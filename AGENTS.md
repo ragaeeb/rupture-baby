@@ -17,7 +17,7 @@ The current app is not just an API for a browser extension anymore. It also incl
 - a sidebar-driven translation file browser
 - inline editing and patch staging for translation excerpts
 - validation and review UX for LLM translation output
-- Gemini-powered Arabic leak correction that stages changes as patches for human review
+- LLM-powered Arabic leak correction that stages changes as patches for human review
 
 ## Runtime and Tooling
 
@@ -32,7 +32,8 @@ The current app is not just an API for a browser extension anymore. It also incl
 
 - `COMPILATION_FILE_PATH` required
 - `TRANSLATIONS_DIR` required
-- `GOOGLE_API_KEY` required for Arabic leak auto-fix via Gemini
+- `NVIDIA_API_KEY` enables Nvidia-hosted Arabic leak auto-fix models
+- `GOOGLE_API_KEY` enables Gemini-backed Arabic leak auto-fix
 
 ## High-Level Architecture
 
@@ -100,6 +101,7 @@ Validation is response-centric:
 - `src/lib/llm/index.ts`
 - `src/lib/llm/types.ts`
 - `src/lib/llm/providers/google.ts`
+- `src/lib/llm/providers/nvidia.ts`
 
 Current supported task:
 

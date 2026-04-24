@@ -15,6 +15,7 @@ import {
     applyRupturePatchesToSegments,
     createRupturePatch,
     getRuptureDisplayHighlights,
+    isLlmPatchSourceProvider,
     normalizeRupturePatchesForSegments,
     type RuptureHighlight,
     type RupturePatch,
@@ -77,10 +78,7 @@ const mergeRupturePatchMetadata = (
                 isRecord(metadata.source) &&
                 metadata.source.kind === 'llm' &&
                 typeof metadata.source.model === 'string' &&
-                (metadata.source.provider === 'cloudflare' ||
-                    metadata.source.provider === 'google' ||
-                    metadata.source.provider === 'huggingface' ||
-                    metadata.source.provider === 'openrouter') &&
+                isLlmPatchSourceProvider(metadata.source.provider) &&
                 (metadata.source.task === 'arabic_leak_correction' || metadata.source.task === 'all_caps_correction')
             ) {
                 mergedPatchMetadata[excerptId] = metadata as RupturePatchMetadata;
@@ -296,8 +294,8 @@ export const buildTranslationTableModel = (
             })),
         hasAlignmentErrors: visibleValidationErrors.some((error) => ALIGNMENT_ERROR_TYPES.has(error.type)),
         hasPatches: rows.some((row) => row.hasPatch),
-        isValid: visibleValidationErrors.length === 0,
         isSourceAlignedToResponse: sourceResolution.alignedToResponse,
+        isValid: visibleValidationErrors.length === 0,
         patchedRowCount: rows.filter((row) => row.hasPatch).length,
         responseIds: translatedSegments.map((segment) => segment.id),
         rows,

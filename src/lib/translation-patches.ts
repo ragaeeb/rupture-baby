@@ -7,6 +7,10 @@ export type RupturePatchOp = { end: number; start: number; text: string };
 export type RupturePatch = { ops: RupturePatchOp[] };
 export type RupturePatches = Record<string, RupturePatch>;
 export type RuptureHighlight = { range: Range; title?: string };
+export const LLM_PATCH_SOURCE_PROVIDERS = ['cloudflare', 'google', 'huggingface', 'nvidia', 'openrouter'] as const;
+export type LlmPatchSourceProvider = (typeof LLM_PATCH_SOURCE_PROVIDERS)[number];
+export const isLlmPatchSourceProvider = (value: unknown): value is LlmPatchSourceProvider =>
+    typeof value === 'string' && LLM_PATCH_SOURCE_PROVIDERS.includes(value as LlmPatchSourceProvider);
 export type RupturePatchMetadata = {
     appliedAt: string;
     highlights?: RuptureHighlight[];
@@ -15,7 +19,7 @@ export type RupturePatchMetadata = {
         kind: 'llm';
         model: string;
         modelVersion?: string;
-        provider: 'cloudflare' | 'google' | 'huggingface' | 'openrouter';
+        provider: LlmPatchSourceProvider;
         task: 'all_caps_correction' | 'arabic_leak_correction';
     };
 };
@@ -81,10 +85,7 @@ export const isRupturePatchMetadata = (value: unknown): value is RupturePatchMet
                 ))) &&
         value.source.kind === 'llm' &&
         typeof value.source.model === 'string' &&
-        (value.source.provider === 'cloudflare' ||
-            value.source.provider === 'google' ||
-            value.source.provider === 'huggingface' ||
-            value.source.provider === 'openrouter') &&
+        isLlmPatchSourceProvider(value.source.provider) &&
         (value.source.task === 'arabic_leak_correction' || value.source.task === 'all_caps_correction') &&
         (typeof value.source.modelVersion === 'string' || typeof value.source.modelVersion === 'undefined')
     );
@@ -325,10 +326,7 @@ const getSharedSuffixLength = (left: string, right: string, sharedPrefixLength: 
     const limit = Math.min(leftLimit, rightLimit);
     let index = 0;
 
-    while (
-        index < limit &&
-        left[left.length - 1 - index] === right[right.length - 1 - index]
-    ) {
+    while (index < limit && left[left.length - 1 - index] === right[right.length - 1 - index]) {
         index += 1;
     }
 

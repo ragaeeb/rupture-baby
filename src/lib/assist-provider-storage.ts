@@ -1,9 +1,7 @@
+import { isAssistProviderId } from '@/lib/assist-provider-ids';
 import type { AssistProviderId } from '@/lib/shell-types';
 
 export const ASSIST_PROVIDER_STORAGE_KEY = 'rupture.assistProvider';
-
-const isAssistProviderId = (value: unknown): value is AssistProviderId =>
-    value === 'hf' || value === 'gemini' || value === 'cloudflare';
 
 export const getStoredAssistProvider = (): AssistProviderId | null => {
     if (typeof window === 'undefined') {

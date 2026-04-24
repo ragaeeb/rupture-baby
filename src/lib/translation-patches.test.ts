@@ -4,6 +4,7 @@ import {
     createRupturePatch,
     getRuptureDisplayHighlights,
     getRupturePatchHighlightRanges,
+    isRupturePatchMetadata,
     mergeRuptureHighlightsForDisplay,
 } from './translation-patches';
 
@@ -15,6 +16,17 @@ describe('getRupturePatchHighlightRanges', () => {
         }
 
         expect(getRupturePatchHighlightRanges(patch)).toEqual([{ end: 17, start: 14 }]);
+    });
+});
+
+describe('isRupturePatchMetadata', () => {
+    it('should accept nvidia as a valid llm patch provider', () => {
+        expect(
+            isRupturePatchMetadata({
+                appliedAt: '2026-04-22T00:00:00.000Z',
+                source: { kind: 'llm', model: 'z-ai/glm4.7', provider: 'nvidia', task: 'arabic_leak_correction' },
+            }),
+        ).toBe(true);
     });
 });
 

@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 
+import { isAssistProviderId } from '@/lib/assist-provider-ids';
 import type {
     AnalyticsPageData,
     CompilationPlaybackSimulationResponse,
@@ -106,10 +107,7 @@ const isValidAssistRequest = (value: unknown): value is TranslationAssistRequest
     const candidate = value as Partial<TranslationAssistRequest>;
 
     return (
-        (typeof candidate.providerId === 'undefined' ||
-            candidate.providerId === 'hf' ||
-            candidate.providerId === 'gemini' ||
-            candidate.providerId === 'cloudflare') &&
+        (typeof candidate.providerId === 'undefined' || isAssistProviderId(candidate.providerId)) &&
         (candidate.scope === 'file' || candidate.scope === 'batch') &&
         (candidate.task === 'arabic_leak_correction' || candidate.task === 'all_caps_correction') &&
         Array.isArray(candidate.excerpts) &&
@@ -132,7 +130,7 @@ const isValidAssistRequest = (value: unknown): value is TranslationAssistRequest
 const validateAssistInput = (value: unknown) => {
     if (!isValidAssistRequest(value)) {
         throw new Error(
-            'Invalid translation assist request. Expected { providerId?: "hf" | "gemini" | "cloudflare", scope: "file" | "batch", task: "arabic_leak_correction" | "all_caps_correction", excerpts: [{ filePath, id, arabic, translation }] }.',
+            'Invalid translation assist request. Expected { providerId?: "hf" | "gemini" | "cloudflare" | "nvidia-glm47" | "nvidia-kimi-k2-thinking", scope: "file" | "batch", task: "arabic_leak_correction" | "all_caps_correction", excerpts: [{ filePath, id, arabic, translation }] }.',
         );
     }
 
@@ -187,10 +185,12 @@ export const saveCompilationPlaybackData = createServerFn({ method: 'POST' }).ha
     },
 );
 
-export const packCompilationFileData = createServerFn({ method: 'POST' }).handler(async (): Promise<PackCompilationResponse> => {
-    const { packCompilationFileResponse } = await import('@/lib/app-services');
-    return packCompilationFileResponse();
-});
+export const packCompilationFileData = createServerFn({ method: 'POST' }).handler(
+    async (): Promise<PackCompilationResponse> => {
+        const { packCompilationFileResponse } = await import('@/lib/app-services');
+        return packCompilationFileResponse();
+    },
+);
 
 export const savePromptSelection = createServerFn({ method: 'POST' })
     .inputValidator(validatePromptInput)
