@@ -9,6 +9,7 @@ import streamValues from 'stream-json/streamers/stream-values.js';
 
 import { requireCompilationFilePath } from '@/lib/data-paths';
 import { fileExists, readJsonFile, writeTextFile } from '@/lib/runtime-files';
+import type { ShiftSettingsResponse } from '@/lib/shell-types';
 import type { ShiftExcerpt } from '@/lib/shift-payload';
 
 type ShiftCache = {
@@ -157,22 +158,14 @@ const loadShiftCache = async (filePath: string, mtimeMs: number): Promise<ShiftC
             : queue.slice(0, checkpoint.shiftedCount).map((excerpt) => excerpt.id);
     const shiftedIdSet = new Set(shiftedIds);
     const remainingQueue =
-        shiftedIdSet.size > 0 ? queue.filter((excerpt) => !shiftedIdSet.has(excerpt.id)) : queue.slice(checkpoint.shiftedCount);
+        shiftedIdSet.size > 0
+            ? queue.filter((excerpt) => !shiftedIdSet.has(excerpt.id))
+            : queue.slice(checkpoint.shiftedCount);
 
     return { filePath, mtimeMs, prompt, queue: remainingQueue, shiftedCount: checkpoint.shiftedCount, shiftedIds };
 };
 
-export type ShiftSettingsInfo = {
-    compilationFilePath: string;
-    compilationMtimeMs: number;
-    checkpointPath: string;
-    checkpointSourceMtimeMs: number | null;
-    shiftedCount: number;
-    shiftedIdCount: number;
-    lastShiftedId: string | null;
-    hasCheckpoint: boolean;
-    checkpointValid: boolean;
-};
+export type ShiftSettingsInfo = ShiftSettingsResponse;
 
 export const getShiftSettingsInfo = async (): Promise<ShiftSettingsInfo> => {
     const compilationFilePath = requireCompilationFilePath();
@@ -187,27 +180,53 @@ export const getShiftSettingsInfo = async (): Promise<ShiftSettingsInfo> => {
         try {
             const checkpoint = await readJsonFile<Partial<ShiftCheckpointFile>>(checkpointPath);
             checkpointSourceMtimeMs = checkpoint.sourceMtimeMs ?? null;
-            checkpointValid = checkpoint.version === 1 && isMatchingSourceMtime(checkpoint.sourceMtimeMs, compilationMtimeMs);
+            checkpointValid =
+                checkpoint.version === 1 && isMatchingSourceMtime(checkpoint.sourceMtimeMs, compilationMtimeMs);
         } catch {
             checkpointSourceMtimeMs = null;
             checkpointValid = false;
         }
     }
 
-    const shiftedCount = await readShiftCheckpoint(compilationFilePath, compilationMtimeMs);
-    const shiftedIds = shiftedCount.shiftedIds;
+    const shiftCacheState = await getShiftCache();
+    const shiftedCount = shiftCacheState.shiftedCount;
+    const shiftedIds = shiftCacheState.shiftedIds;
 
     return {
-        compilationFilePath,
-        compilationMtimeMs,
         checkpointPath,
         checkpointSourceMtimeMs,
-        shiftedCount: shiftedCount.shiftedCount,
-        shiftedIdCount: shiftedIds.length,
-        lastShiftedId: shiftedIds.at(-1) ?? null,
-        hasCheckpoint: checkpointFileExists,
         checkpointValid,
+        compilationFilePath,
+        compilationMtimeMs,
+        hasCheckpoint: checkpointFileExists,
+        lastShiftedId: shiftedIds.at(-1) ?? null,
+        nextId: shiftCacheState.queue[0]?.id ?? null,
+        remainingCount: shiftCacheState.queue.length,
+        shiftedCount,
+        shiftedIdCount: shiftedIds.length,
+        totalCount: shiftCacheState.shiftedCount + shiftCacheState.queue.length,
     };
+};
+
+export const setShiftCheckpointPosition = async (nextShiftedCount: number): Promise<ShiftSettingsInfo> => {
+    const filePath = requireCompilationFilePath();
+    const stats = await fs.stat(filePath);
+    const [fullQueue, prompt] = await Promise.all([loadUntranslatedQueue(filePath), loadPrompt(filePath)]);
+    const safeShiftedCount = Math.min(fullQueue.length, Math.max(0, Math.floor(nextShiftedCount)));
+    const shiftedIds = fullQueue.slice(0, safeShiftedCount).map((excerpt) => excerpt.id);
+
+    await saveShiftCheckpoint(filePath, stats.mtimeMs, safeShiftedCount, shiftedIds);
+
+    shiftCache = {
+        filePath,
+        mtimeMs: stats.mtimeMs,
+        prompt,
+        queue: fullQueue.slice(safeShiftedCount),
+        shiftedCount: safeShiftedCount,
+        shiftedIds,
+    };
+
+    return getShiftSettingsInfo();
 };
 
 export const getShiftCache = async (): Promise<ShiftCache> => {

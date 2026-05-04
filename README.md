@@ -7,44 +7,49 @@
 [![wakatime](https://wakatime.com/badge/user/a0b906ce-b8e7-4463-8bce-383238df6d4b/project/9dfb2637-887c-482b-814f-e2998faa5893.svg)](https://wakatime.com/badge/user/a0b906ce-b8e7-4463-8bce-383238df6d4b/project/9dfb2637-887c-482b-814f-e2998faa5893)
 [![codecov](https://codecov.io/gh/ragaeeb/rupture-baby/graph/badge.svg?token=B2LMQ3CK4K)](https://codecov.io/gh/ragaeeb/rupture-baby)
 
-`rupture-baby` is a Bun + TanStack Start server for Arabic translation workflows.
+`rupture-baby` is a Bun + TanStack Start translation workbench for Arabic compilation and review workflows.
 
-It serves untranslated excerpts from a large compilation file, browses saved translation JSON files, validates LLM output, stages human and AI-assisted edits as patches, and persists reviewed changes as the source of truth.
+It serves untranslated excerpts from a large compilation file, browses saved translation JSON files, validates LLM output, stages human and AI-assisted edits as patches, simulates playback into the compilation corpus, and persists reviewed changes as the source of truth.
 
 ## What It Does
 
 - streams untranslated excerpts out of a very large compilation JSON file
-- generates prompt/payload data for translation runs
+- builds prompt-aware translation payloads and shift-oriented excerpt batches
 - stores the active translation prompt in the compilation file itself
-- provides a dashboard and sidebar-driven translation file browser
+- provides a dashboard, analytics page, compilation browser, valid playback page, and shift control page
+- provides a sidebar-driven translation file browser with model, status, and thinking-time filters
 - validates translated responses against source excerpt IDs and content rules
 - supports inline excerpt editing with staged local patches
-- supports Arabic leak correction through Nvidia, Gemini, Hugging Face, and Cloudflare providers
+- supports skip/unskip and bulk skip controls for excerpt rows
+- supports Arabic leak correction and all-caps correction through Nvidia, Gemini, Hugging Face, and Cloudflare providers
+- supports batch repair of invalid excerpts before commit
 - persists excerpt patches atomically into translation files
+- exposes a legacy ingestion endpoint for direct translation uploads with idempotency and stale-write protection
 
-## Main Concepts
+## Main Pages
 
-### Compilation source
+- `/` dashboard
+- `/dashboard` dashboard alias
+- `/analytics` compilation and patch analytics
+- `/compilation` paginated compilation browser with row selection and copy-with-prompt
+- `/shift` persisted shift checkpoint control
+- `/valid` valid playback simulation and save flow
+- `/invalid` invalid excerpt triage and batch repair
+- `/translations/:fileNameId` translation review/editor
+- `/prompts` prompt selection and editing
+- `/settings` assist-provider selection
 
-The compilation file is the large corpus source configured by `COMPILATION_FILE_PATH`.
+Note: the browse shell lives in the pathless TanStack route `src/app/_browse.tsx`, so public URLs omit `/_browse`.
 
-Key behavior:
-
-- compilation routes should not load the full JSON file into memory per request
-- excerpt extraction uses streaming parsing
-- untranslated excerpt subsets can be cached in memory, but cache invalidation must respect source file changes
-
-### Translation files
+## Translation Files and `__rupture`
 
 Translation files live under `TRANSLATIONS_DIR`.
 
-The app normalizes different saved formats into a common shape and exposes them in:
+The app normalizes supported single-conversation export formats into a common shape and exposes them in:
 
 - `Table` view for review/editing
 - `JSON` view for raw inspection
 - `Normal` view for reconstructed conversation rendering
-
-### `__rupture`
 
 Reviewed or AI-generated edits are stored under top-level `__rupture`.
 
@@ -74,7 +79,8 @@ Current shape:
           { "start": 10, "end": 21 }
         ]
       }
-    }
+    },
+    "skip": ["P999"]
   }
 }
 ```
@@ -82,44 +88,60 @@ Current shape:
 Notes:
 
 - `patches` contains only patch data
-- `patchMetadata` contains provenance and optional highlight ranges
+- `patchMetadata` contains provenance and optional highlight data
+- `skip` contains skipped excerpt IDs only
 - writes are atomic: the server writes to a temp file and renames into place
 
 ## LLM Assistance
 
-Arabic leak auto-fix can now run against multiple assist providers.
+Two repair tasks are currently supported:
 
-Current notable options:
+- `arabic_leak_correction`
+- `all_caps_correction`
+
+The same assist contract is used in two places:
+
+- `scope: "file"` from the translation detail page
+- `scope: "batch"` from the invalid excerpts page
+
+Current provider options:
 
 - NVIDIA GLM-4.7: `z-ai/glm4.7`
 - NVIDIA Kimi K2 Thinking: `moonshotai/kimi-k2-thinking`
 - Google Gemini API: `gemini-3.1-flash-lite-preview`
-- Hugging Face router: env-configured model
+- Hugging Face router: `HF_MODEL_ID` or `meta-llama/Llama-3.3-70B-Instruct`
 - Cloudflare Workers AI: `@cf/meta/llama-3.3-70b-instruct-fp8-fast`
 
 Flow:
 
-1. the validator flags `arabic_leak` errors
-2. the table banner exposes a `Fix Arabic leaks` action
+1. validation flags `arabic_leak`, `all_caps`, or other response issues
+2. the translation page or invalid-excerpts page exposes repair actions
 3. the selected provider returns structured `match` / `replacement` corrections
 4. the app stages those corrections as local pending patches
 5. the user reviews them and clicks `Commit`
 6. the patch and its metadata are persisted to the translation file
 
-## App Routes
+The settings page stores the selected provider in browser local storage. `LLM_ASSIST_PROVIDER` can still define the server-side default when no local override exists.
 
-- `/` dashboard
-- `/dashboard` dashboard alias
-- `/translations/:fileNameId` translation review/editor
-- `/prompts` prompt management
+## Compilation and Playback
+
+The compilation file is the large corpus source configured by `COMPILATION_FILE_PATH`.
+
+Key behavior:
+
+- compilation routes should not load the full JSON file into memory per request
+- excerpt extraction, prompt lookup, and shift state use streaming parsing where practical
+- untranslated excerpt subsets can be cached in memory, but cache invalidation must respect source file changes
+- valid playback is simulated first and only saved to disk after explicit confirmation
+- shift progress is persisted in a checkpoint file beside the compilation JSON
 
 ## API Routes
 
 ### Compilation
 
-- `GET /api/compilation/excerpts?page=1&pageSize=50`
-- `GET /api/compilation/excerpts/shift`
-- `GET /api/compilation/excerpts/payload`
+- `GET /api/compilation/excerpts?page=1&pageSize=50&maxIds=500&modelId=879`
+- `GET /api/compilation/excerpts/payload?maxTokens=4000&maxItems=10000&modelId=879`
+- `GET /api/compilation/excerpts/shift?provider=openai&maxTokens=7000`
 - `GET /api/compilation/prompt`
 - `POST /api/compilation/prompt`
 
@@ -128,14 +150,22 @@ Flow:
 - `GET /api/translations/files`
 - `GET /api/translations/file?path=...`
 - `PATCH /api/translations/file?path=...`
+- `DELETE /api/translations/delete?path=...`
 - `POST /api/translations/assist`
 - `GET /api/translations/validate`
+- `POST /api/translations/:id`
 
 ### Shell/meta
 
 - `GET /api/dashboard/stats`
 - `GET /api/meta`
 - `GET /api/config/paths`
+- `POST /api/config/paths`
+
+Notes:
+
+- `POST /api/config/paths` intentionally returns an error. Runtime path updates are disabled; configure paths through env vars.
+- `POST /api/translations/:id` is the legacy direct-ingest route. It writes the raw payload plus sidecar metadata and supports idempotency headers.
 
 ## Environment Variables
 
@@ -144,16 +174,22 @@ Required:
 - `COMPILATION_FILE_PATH`
 - `TRANSLATIONS_DIR`
 
-Required for Nvidia-assisted Arabic leak correction:
+Assist providers:
 
-- `NVIDIA_API_KEY`
-
-Optional alternatives for other assist providers:
-
+- `NVIDIA_API_KEY` or `NVIDIA_NIM_API_KEY`
 - `GOOGLE_API_KEY`
 - `HF_MODEL_TOKEN`
+- `HF_MODEL_ID` optional model override
 - `CLOUDFLARE_WORKERS_AI_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+- `LLM_ASSIST_PROVIDER` optional default provider override
+
+Optional assist tuning:
+
+- `LLM_ASSIST_MAX_EXCERPTS_PER_REQUEST`
+- `GEMINI_ASSIST_MAX_EXCERPTS_PER_REQUEST`
+- `NVIDIA_ASSIST_MAX_EXCERPTS_PER_REQUEST`
+- `NVIDIA_ASSIST_MAX_OUTPUT_TOKENS`
 
 Example:
 
@@ -161,6 +197,8 @@ Example:
 COMPILATION_FILE_PATH=/Users/user/workspace/compilations/1119.json
 TRANSLATIONS_DIR=/Users/user/workspace/compilations/translations
 NVIDIA_API_KEY=your_nvidia_api_key
+GOOGLE_API_KEY=your_google_api_key
+LLM_ASSIST_PROVIDER=nvidia-glm47
 ```
 
 ## Development
@@ -175,7 +213,7 @@ Install:
 bun install
 ```
 
-Run the dev server:
+Run the dev server on port `9000`:
 
 ```bash
 bun run dev
@@ -207,12 +245,21 @@ bun run lint
 
 ## Implementation Notes
 
-- The root page is the dashboard. There is no redirect from `/` to `/dashboard`.
-- Sidebar filter state lives in the URL query string and is preserved across navigation.
+- Root page is the dashboard. There is no redirect from `/` to `/dashboard`.
 - Prompt selection is persisted back into the compilation JSON, not a standalone local cache.
 - Translation page commit is explicit. Blur only stages pending local edits.
+- Translation table rows support skip/unskip without deleting source text.
+- Invalid excerpt repair uses the same assist pipeline as the file view, but in `batch` scope.
+- Valid playback is a dry-run until `Save Played Compilation` is used.
 - Highlighting for validation should prefer `segmentRange`.
 - Highlighting for AI-generated patch replacements should prefer exact ranges stored in `__rupture.patchMetadata`.
+- `src/routeTree.gen.ts` is generated by TanStack Router; do not edit it manually.
+
+## Utility Script
+
+Mass-export Grok conversation arrays should be normalized before browsing them in the app.
+
+- [`scripts/README.md`](./scripts/README.md)
 
 ## Tech Stack
 

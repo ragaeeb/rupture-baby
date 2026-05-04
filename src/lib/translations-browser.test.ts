@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { getCompilationPlaybackSimulation } from './compilation-playback';
+import { createRupturePatch, type RupturePatchMetadata } from './translation-patches';
 import {
     collectTranslationFilePaths,
     deleteTranslationJsonFile,
@@ -12,6 +13,7 @@ import {
     getTranslationTree,
     invalidateTranslationTreeCache,
     summarizeTranslationStats,
+    writeTranslationPatch,
     type TranslationTreeNode,
 } from './translations-browser';
 
@@ -217,6 +219,145 @@ describe('translation tree caching', () => {
 
         const nextTree = await getTranslationTree();
         expect(collectFilePathsFromTree(nextTree.entries).sort()).toEqual(['a.json']);
+    });
+});
+
+describe('writeTranslationPatch', () => {
+    let tempDir = '';
+    let translationsDir = '';
+    let relativePath = '';
+
+    const createPatchMetadata = (start: number, end: number): RupturePatchMetadata => ({
+        appliedAt: '2026-05-02T00:00:00.000Z',
+        highlightRanges: [{ end, start }],
+        source: {
+            kind: 'llm',
+            model: 'z-ai/glm4.7',
+            provider: 'nvidia',
+            task: 'arabic_leak_correction',
+        },
+    });
+
+    const createBaseTranslationFile = async (
+        overrides: Record<string, unknown> = {},
+        ruptureOverrides?: Record<string, unknown>,
+    ) => {
+        const baseFile = {
+            format: 'common',
+            llm: 'ChatGPT',
+            model: 'gpt-5-4-pro',
+            prompt: 'Translate carefully.\n\nP1 - نص عربي ١\n\nP2 - نص عربي ٢',
+            reasoning: [],
+            response: 'P1 - first translation\n\nP2 - second translation',
+            ...(ruptureOverrides ? { __rupture: ruptureOverrides } : {}),
+            ...overrides,
+        };
+
+        await writeFile(path.join(translationsDir, relativePath), JSON.stringify(baseFile, null, 2));
+    };
+
+    beforeEach(async () => {
+        tempDir = await mkdtemp(path.join(os.tmpdir(), 'rupture-write-patch-'));
+        translationsDir = path.join(tempDir, 'translations');
+        relativePath = 'sample.json';
+        await mkdir(translationsDir, { recursive: true });
+        process.env.TRANSLATIONS_DIR = translationsDir;
+    });
+
+    afterEach(async () => {
+        delete process.env.TRANSLATIONS_DIR;
+        if (tempDir) {
+            await rm(tempDir, { force: true, recursive: true });
+        }
+    });
+
+    it('should persist patch metadata alongside saved patches without disturbing other rupture fields', async () => {
+        const patch = createRupturePatch('first translation', 'first translation fixed');
+        if (!patch) {
+            throw new Error('Expected patch to be created');
+        }
+
+        const patchMetadata = createPatchMetadata(0, 5);
+        await createBaseTranslationFile({}, { skip: ['P2'] });
+
+        const result = await writeTranslationPatch(relativePath, 'P1', patch, patchMetadata);
+        const saved = JSON.parse(await readFile(path.join(translationsDir, relativePath), 'utf8')) as {
+            __rupture?: {
+                patchMetadata?: Record<string, RupturePatchMetadata>;
+                patches?: Record<string, typeof patch>;
+                skip?: string[];
+            };
+        };
+
+        expect(result.relativePath).toBe(relativePath);
+        expect(saved.__rupture?.patches).toEqual({ P1: patch });
+        expect(saved.__rupture?.patchMetadata).toEqual({ P1: patchMetadata });
+        expect(saved.__rupture?.skip).toEqual(['P2']);
+    });
+
+    it('should delete patch metadata when removing a saved patch while preserving other entries', async () => {
+        const patch1 = createRupturePatch('first translation', 'first translation fixed');
+        const patch2 = createRupturePatch('second translation', 'second translation fixed');
+        if (!patch1 || !patch2) {
+            throw new Error('Expected patches to be created');
+        }
+
+        const patchMetadata1 = createPatchMetadata(0, 5);
+        const patchMetadata2 = createPatchMetadata(7, 13);
+        await createBaseTranslationFile({}, {
+            patchMetadata: { P1: patchMetadata1, P2: patchMetadata2 },
+            patches: { P1: patch1, P2: patch2 },
+            skip: ['P2'],
+        });
+
+        await writeTranslationPatch(relativePath, 'P1', null);
+
+        const saved = JSON.parse(await readFile(path.join(translationsDir, relativePath), 'utf8')) as {
+            __rupture?: {
+                patchMetadata?: Record<string, RupturePatchMetadata>;
+                patches?: Record<string, typeof patch2>;
+                skip?: string[];
+            };
+        };
+
+        expect(saved.__rupture?.patches).toEqual({ P2: patch2 });
+        expect(saved.__rupture?.patchMetadata).toEqual({ P2: patchMetadata2 });
+        expect(saved.__rupture?.skip).toEqual(['P2']);
+    });
+
+    it('should remove the rupture metadata block when the last saved patch is deleted', async () => {
+        const patch = createRupturePatch('first translation', 'first translation fixed');
+        if (!patch) {
+            throw new Error('Expected patch to be created');
+        }
+
+        const patchMetadata = createPatchMetadata(0, 5);
+        await createBaseTranslationFile({}, { patchMetadata: { P1: patchMetadata }, patches: { P1: patch } });
+
+        await writeTranslationPatch(relativePath, 'P1', null);
+
+        const saved = JSON.parse(await readFile(path.join(translationsDir, relativePath), 'utf8')) as {
+            __rupture?: unknown;
+        };
+
+        expect(saved.__rupture).toBeUndefined();
+    });
+
+    it('should reject excerpt ids that are not present in the source prompt', async () => {
+        const patch = createRupturePatch('first translation', 'first translation fixed');
+        if (!patch) {
+            throw new Error('Expected patch to be created');
+        }
+
+        await createBaseTranslationFile();
+
+        try {
+            await writeTranslationPatch(relativePath, 'P99', patch);
+            throw new Error('Expected writeTranslationPatch to throw');
+        } catch (error) {
+            expect(error).toBeInstanceOf(Error);
+            expect((error as Error).message).toBe('Excerpt not found.');
+        }
     });
 });
 

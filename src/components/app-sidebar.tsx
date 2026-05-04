@@ -9,6 +9,8 @@ import {
     Folder,
     LayoutDashboard,
     Settings2,
+    StepForward,
+    Table2,
     Trash2,
     X,
 } from 'lucide-react';
@@ -86,6 +88,22 @@ const NavigationSection = ({
                         <Link resetScroll={false} search={filterSearch} to="/analytics">
                             <BarChart3 />
                             <span className="min-w-0 truncate">Analytics</span>
+                        </Link>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={pathname === '/compilation'} tooltip="Compilation Browser">
+                        <Link resetScroll={false} search={filterSearch} to="/compilation">
+                            <Table2 />
+                            <span className="min-w-0 truncate">Compilation</span>
+                        </Link>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={pathname === '/shift'} tooltip="Shift Control">
+                        <Link resetScroll={false} search={filterSearch} to="/shift">
+                            <StepForward />
+                            <span className="min-w-0 truncate">Shift</span>
                         </Link>
                     </SidebarMenuButton>
                 </SidebarMenuItem>

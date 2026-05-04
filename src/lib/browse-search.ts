@@ -1,3 +1,11 @@
+import {
+    type CompilationCollectionKey,
+    DEFAULT_COMPILATION_BROWSE_COLLECTION,
+    DEFAULT_COMPILATION_BROWSE_PAGE,
+    DEFAULT_COMPILATION_BROWSE_PAGE_SIZE,
+    isCompilationCollectionKey,
+    MAX_COMPILATION_BROWSE_PAGE_SIZE,
+} from '@/lib/compilation-browser-shared';
 import type { ThinkingTimeRange } from '@/lib/reasoning-time';
 import { isFileViewMode } from '@/lib/translation-file-view-model';
 
@@ -10,10 +18,23 @@ export type RootSearch = Record<string, unknown> & {
 };
 
 export type TranslationRouteSearch = RootSearch & { view?: 'json' | 'normal' | 'normalized' };
+export type CompilationBrowseRouteSearch = RootSearch & {
+    collection?: CompilationCollectionKey;
+    page?: number;
+    pageSize?: number;
+};
 
 type SearchRecord = Record<string, unknown>;
 
 const isRecord = (value: unknown): value is SearchRecord => typeof value === 'object' && value !== null;
+const parsePositiveInt = (value: unknown) => {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+        return null;
+    }
+
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
 
 export const toSearchRecord = (value: unknown): SearchRecord => (isRecord(value) ? { ...value } : {});
 
@@ -109,6 +130,41 @@ export const parseTranslationRouteSearch = (value: unknown): TranslationRouteSea
         search.view = candidateView;
     } else {
         delete search.view;
+    }
+
+    return sanitizeSearch(search);
+};
+
+export const parseCompilationBrowseRouteSearch = (value: unknown): CompilationBrowseRouteSearch => {
+    const search = parseBrowseSearch(value) as CompilationBrowseRouteSearch;
+    const rawSearch = toSearchRecord(value);
+    const collection = isCompilationCollectionKey(rawSearch.collection)
+        ? rawSearch.collection
+        : DEFAULT_COMPILATION_BROWSE_COLLECTION;
+    const page = parsePositiveInt(rawSearch.page);
+    const pageSize = parsePositiveInt(rawSearch.pageSize);
+
+    if (collection !== DEFAULT_COMPILATION_BROWSE_COLLECTION) {
+        search.collection = collection;
+    } else {
+        delete search.collection;
+    }
+
+    if (page && page !== DEFAULT_COMPILATION_BROWSE_PAGE) {
+        search.page = page;
+    } else {
+        delete search.page;
+    }
+
+    const safePageSize =
+        typeof pageSize === 'number'
+            ? Math.min(MAX_COMPILATION_BROWSE_PAGE_SIZE, Math.max(1, pageSize))
+            : DEFAULT_COMPILATION_BROWSE_PAGE_SIZE;
+
+    if (safePageSize !== DEFAULT_COMPILATION_BROWSE_PAGE_SIZE) {
+        search.pageSize = safePageSize;
+    } else {
+        delete search.pageSize;
     }
 
     return sanitizeSearch(search);

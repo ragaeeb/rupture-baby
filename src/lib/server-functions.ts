@@ -1,13 +1,23 @@
 import { createServerFn } from '@tanstack/react-start';
 
 import { isAssistProviderId } from '@/lib/assist-provider-ids';
+import {
+    DEFAULT_COMPILATION_BROWSE_COLLECTION,
+    DEFAULT_COMPILATION_BROWSE_PAGE,
+    DEFAULT_COMPILATION_BROWSE_PAGE_SIZE,
+    isCompilationCollectionKey,
+    MAX_COMPILATION_BROWSE_PAGE_SIZE,
+} from '@/lib/compilation-browser-shared';
 import type {
     AnalyticsPageData,
+    CompilationBrowsePageData,
     CompilationPlaybackSimulationResponse,
     DashboardPageData,
     DeleteTranslationsResponse,
     PackCompilationResponse,
     SaveCompilationPlaybackResponse,
+    ShiftSettingsPageData,
+    ShiftSettingsResponse,
     TranslationAssistRequest,
     TranslationFileResponse,
 } from '@/lib/shell-types';
@@ -51,6 +61,43 @@ const validatePromptInput = (value: unknown) => ({
               })(),
     promptId: getNonEmptyString((value as { promptId?: unknown })?.promptId, 'promptId'),
 });
+
+const validateCompilationBrowseInput = (value: unknown) => {
+    if (typeof value !== 'object' || value === null) {
+        throw new Error('Request body must be a JSON object.');
+    }
+
+    const candidate = value as { collection?: unknown; page?: unknown; pageSize?: unknown };
+    const parsedPage =
+        typeof candidate.page === 'number' && Number.isFinite(candidate.page)
+            ? Math.floor(candidate.page)
+            : DEFAULT_COMPILATION_BROWSE_PAGE;
+    const parsedPageSize =
+        typeof candidate.pageSize === 'number' && Number.isFinite(candidate.pageSize)
+            ? Math.floor(candidate.pageSize)
+            : DEFAULT_COMPILATION_BROWSE_PAGE_SIZE;
+
+    return {
+        collection: isCompilationCollectionKey(candidate.collection)
+            ? candidate.collection
+            : DEFAULT_COMPILATION_BROWSE_COLLECTION,
+        page: Math.max(1, parsedPage),
+        pageSize: Math.min(MAX_COMPILATION_BROWSE_PAGE_SIZE, Math.max(1, parsedPageSize)),
+    };
+};
+
+const validateShiftSettingsInput = (value: unknown) => {
+    if (typeof value !== 'object' || value === null) {
+        throw new Error('Request body must be a JSON object.');
+    }
+
+    const shiftedCount = (value as { shiftedCount?: unknown }).shiftedCount;
+    if (typeof shiftedCount !== 'number' || !Number.isFinite(shiftedCount)) {
+        throw new Error('Field "shiftedCount" must be a finite number.');
+    }
+
+    return { shiftedCount: Math.max(0, Math.floor(shiftedCount)) };
+};
 
 const validatePatchInput = (value: unknown) => {
     if (typeof value !== 'object' || value === null) {
@@ -156,15 +203,34 @@ export const fetchAnalyticsPageData = createServerFn({ method: 'GET' }).handler(
     },
 );
 
+export const fetchCompilationBrowsePageData = createServerFn({ method: 'GET' })
+    .inputValidator(validateCompilationBrowseInput)
+    .handler(async ({ data }): Promise<CompilationBrowsePageData> => {
+        const { getCompilationBrowsePageData } = await import('@/lib/app-services');
+        return getCompilationBrowsePageData(data);
+    });
+
 export const fetchPromptsPageData = createServerFn({ method: 'GET' }).handler(async () => {
     const { getPromptsPageData } = await import('@/lib/app-services');
     return getPromptsPageData();
+});
+
+export const fetchPromptStateData = createServerFn({ method: 'GET' }).handler(async () => {
+    const { getPromptStateResponse } = await import('@/lib/app-services');
+    return getPromptStateResponse();
 });
 
 export const fetchSettingsPageData = createServerFn({ method: 'GET' }).handler(async () => {
     const { getSettingsPageData } = await import('@/lib/app-services');
     return getSettingsPageData();
 });
+
+export const fetchShiftSettingsPageData = createServerFn({ method: 'GET' }).handler(
+    async (): Promise<ShiftSettingsPageData> => {
+        const { getShiftSettingsPageData } = await import('@/lib/app-services');
+        return getShiftSettingsPageData();
+    },
+);
 
 export const fetchInvalidExcerptsData = createServerFn({ method: 'GET' }).handler(async () => {
     const { getInvalidExcerptsResponse } = await import('@/lib/app-services');
@@ -239,4 +305,11 @@ export const requestArabicLeakCorrections = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         const { requestTranslationAssistResponse } = await import('@/lib/app-services');
         return requestTranslationAssistResponse(data);
+    });
+
+export const updateShiftCheckpointPosition = createServerFn({ method: 'POST' })
+    .inputValidator(validateShiftSettingsInput)
+    .handler(async ({ data }): Promise<ShiftSettingsResponse> => {
+        const { setShiftCheckpointPositionResponse } = await import('@/lib/app-services');
+        return setShiftCheckpointPositionResponse(data.shiftedCount);
     });

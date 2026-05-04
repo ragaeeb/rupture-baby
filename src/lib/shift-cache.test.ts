@@ -3,7 +3,12 @@ import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { __resetShiftCacheForTests, getShiftCache, getShiftSettingsInfo } from './shift-cache';
+import {
+    __resetShiftCacheForTests,
+    getShiftCache,
+    getShiftSettingsInfo,
+    setShiftCheckpointPosition,
+} from './shift-cache';
 
 describe('getShiftCache', () => {
     let tempDir = '';
@@ -81,11 +86,7 @@ describe('getShiftCache', () => {
 
         await writeFile(
             path.join(tempDir, '.compilation.settings.json'),
-            JSON.stringify({
-                shiftedCount: 1,
-                sourceMtimeMs: compilationStats.mtimeMs,
-                version: 1,
-            }),
+            JSON.stringify({ shiftedCount: 1, sourceMtimeMs: compilationStats.mtimeMs, version: 1 }),
         );
 
         const shiftCache = await getShiftCache();
@@ -195,11 +196,7 @@ describe('getShiftCache', () => {
 
         await writeFile(
             path.join(tempDir, '.compilation.settings.json'),
-            JSON.stringify({
-                shiftedCount: 1,
-                sourceMtimeMs: compilationStats.mtimeMs + 0.468,
-                version: 1,
-            }),
+            JSON.stringify({ shiftedCount: 1, sourceMtimeMs: compilationStats.mtimeMs + 0.468, version: 1 }),
         );
 
         const [shiftCache, info] = await Promise.all([getShiftCache(), getShiftSettingsInfo()]);
@@ -207,5 +204,34 @@ describe('getShiftCache', () => {
         expect(shiftCache.queue).toEqual([{ id: 'P2', nass: 'excerpt two' }]);
         expect(shiftCache.shiftedCount).toBe(1);
         expect(info.checkpointValid).toBe(true);
+    });
+
+    it('should update the persisted shift position and rebuild the in-memory queue', async () => {
+        await writeFile(
+            compilationFilePath,
+            JSON.stringify({
+                contractVersion: '1',
+                createdAt: 1,
+                excerpts: [
+                    { from: 0, id: 'P1', nass: 'excerpt one', text: null },
+                    { from: 1, id: 'P2', nass: 'excerpt two', text: null },
+                ],
+                footnotes: [{ from: 2, id: 'F1', nass: 'footnote one', text: null }],
+                headings: [],
+                lastUpdatedAt: 1,
+                options: {},
+                postProcessingApps: [],
+                promptForTranslation: 'prompt',
+            }),
+        );
+
+        const info = await setShiftCheckpointPosition(2);
+        const shiftCache = await getShiftCache();
+
+        expect(info.shiftedCount).toBe(2);
+        expect(info.remainingCount).toBe(1);
+        expect(info.nextId).toBe('F1');
+        expect(shiftCache.shiftedIds).toEqual(['P1', 'P2']);
+        expect(shiftCache.queue).toEqual([{ id: 'F1', nass: 'footnote one' }]);
     });
 });

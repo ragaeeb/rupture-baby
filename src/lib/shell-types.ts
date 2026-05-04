@@ -1,4 +1,5 @@
 import type { AssistProviderId } from '@/lib/assist-provider-ids';
+import type { CompilationCollectionKey } from '@/lib/compilation-browser-shared';
 import type { ThinkingTimeRange } from '@/lib/reasoning-time';
 import type { RuptureHighlight, RupturePatchMetadata } from '@/lib/translation-patches';
 import type { Range } from '@/lib/validation/types';
@@ -166,6 +167,54 @@ export type BrowseShellData = {
 export type DashboardPageData = { stats: DashboardStatsResponse | null; statsError: string | null };
 
 export type AnalyticsPageData = { analytics: CompilationAnalyticsResponse | null; error: string | null };
+
+export type CompilationBrowseRow = {
+    collection: CompilationCollectionKey;
+    from: number | null;
+    id: string;
+    index: number;
+    isTranslated: boolean;
+    lastUpdatedAt: number | null;
+    nass: string;
+    num: string | null;
+    parent: string | null;
+    text: string | null;
+    to: number | null;
+    translator: number | null;
+};
+
+export type CompilationBrowseResponse = {
+    collection: CompilationCollectionKey;
+    pagination: {
+        hasNextPage: boolean;
+        hasPreviousPage: boolean;
+        page: number;
+        pageSize: number;
+        totalItems: number;
+        totalPages: number;
+    };
+    rows: CompilationBrowseRow[];
+    summary: { total: number; translated: number; untranslated: number };
+};
+
+export type CompilationBrowsePageData = { browse: CompilationBrowseResponse | null; error: string | null };
+
+export type ShiftSettingsResponse = {
+    checkpointPath: string;
+    checkpointSourceMtimeMs: number | null;
+    checkpointValid: boolean;
+    compilationFilePath: string;
+    compilationMtimeMs: number;
+    hasCheckpoint: boolean;
+    lastShiftedId: string | null;
+    nextId: string | null;
+    remainingCount: number;
+    shiftedCount: number;
+    shiftedIdCount: number;
+    totalCount: number;
+};
+
+export type ShiftSettingsPageData = { error: string | null; settings: ShiftSettingsResponse | null };
 
 export type PromptsPageData = {
     error: string | null;

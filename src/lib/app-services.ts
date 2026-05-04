@@ -2,6 +2,7 @@ import '@tanstack/react-start/server-only';
 
 import { getAppSettings } from '@/lib/app-settings';
 import { getCompilationAnalytics } from '@/lib/compilation-analytics';
+import { getCompilationBrowsePage } from '@/lib/compilation-browser';
 import { getCompilationPlaybackSimulation, saveCompilationPlayback } from '@/lib/compilation-playback';
 import { getCompilationStats } from '@/lib/compilation-stats';
 import { withPerfSpan } from '@/lib/perf-log';
@@ -9,6 +10,7 @@ import { getPromptOptions, getSelectedPrompt, setSelectedPrompt } from '@/lib/pr
 import type {
     AnalyticsPageData,
     BrowseShellData,
+    CompilationBrowsePageData,
     CompilationPlaybackSimulationResponse,
     DashboardPageData,
     DashboardStatsResponse,
@@ -20,9 +22,11 @@ import type {
     PromptsPageData,
     SaveCompilationPlaybackResponse,
     SettingsPageData,
+    ShiftSettingsPageData,
     TranslationAssistRequest,
     TranslationAssistResponse,
 } from '@/lib/shell-types';
+import { getShiftSettingsInfo, setShiftCheckpointPosition } from '@/lib/shift-cache';
 import { requestTranslationAssistance } from '@/lib/translation-assistance';
 import {
     deleteTranslationJsonFile,
@@ -159,6 +163,34 @@ export const getAnalyticsPageData = async (): Promise<AnalyticsPageData> => {
     });
 };
 
+export const getCompilationBrowsePageData = async ({
+    collection,
+    page,
+    pageSize,
+}: {
+    collection: Parameters<typeof getCompilationBrowsePage>[0]['collection'];
+    page: number;
+    pageSize: number;
+}): Promise<CompilationBrowsePageData> => {
+    return withPerfSpan('app-services', 'get_compilation_browse_page_data', async () => {
+        try {
+            return { browse: await getCompilationBrowsePage({ collection, page, pageSize }), error: null };
+        } catch (error) {
+            return { browse: null, error: getErrorMessage(error, 'Failed to load compilation rows.') };
+        }
+    });
+};
+
+export const getShiftSettingsPageData = async (): Promise<ShiftSettingsPageData> => {
+    return withPerfSpan('app-services', 'get_shift_settings_page_data', async () => {
+        try {
+            return { error: null, settings: await getShiftSettingsInfo() };
+        } catch (error) {
+            return { error: getErrorMessage(error, 'Failed to load shift settings.'), settings: null };
+        }
+    });
+};
+
 export const deleteTranslationFileResponse = async (relativePath: string): Promise<DeleteTranslationResponse> => {
     await deleteTranslationJsonFile(relativePath);
     return { deletedPath: relativePath, success: true };
@@ -174,3 +206,6 @@ export const deleteTranslationFilesResponse = async (relativePaths: string[]): P
 
 export const setTranslationSkipResponse = async (relativePath: string, excerptId: string, skipped: boolean) =>
     writeTranslationSkip(relativePath, excerptId, skipped);
+
+export const setShiftCheckpointPositionResponse = async (shiftedCount: number) =>
+    setShiftCheckpointPosition(shiftedCount);
