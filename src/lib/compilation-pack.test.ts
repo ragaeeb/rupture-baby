@@ -34,7 +34,13 @@ describe('packCompilationFile', () => {
 
         expect(observedCalls).toEqual([
             {
-                args: ['--force', '--quality=11', '--lgwin=24', `--output=${compilationFilePath}.br`, compilationFilePath],
+                args: [
+                    '--force',
+                    '--quality=11',
+                    '--lgwin=24',
+                    `--output=${compilationFilePath}.br`,
+                    compilationFilePath,
+                ],
                 command: 'brotli',
             },
         ]);

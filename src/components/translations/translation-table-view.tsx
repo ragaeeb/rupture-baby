@@ -1,78 +1,101 @@
 'use client';
 
 import { Ban, Wrench } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { EditableTranslationContent } from '@/components/translations/editable-translation-content';
 import type { TranslationRowData, TranslationTableModel } from '@/lib/translation-file-view-model';
 
-const getRowClassName = (row: TranslationRowData) => {
+type TranslationRowTone = 'default' | 'dirty' | 'invalid' | 'missing' | 'patched' | 'skipped';
+
+const getTranslationRowTone = (row: TranslationRowData): TranslationRowTone => {
     if (row.validationMessages.length > 0) {
-        return 'border-b bg-destructive/5 shadow-[inset_0_0_0_1px_hsl(var(--destructive)/0.35)] last:border-b-0';
+        return 'invalid';
     }
     if (row.isSkipped) {
-        return 'border-b bg-muted/30 opacity-75 last:border-b-0';
+        return 'skipped';
     }
     if (row.isDirty) {
-        return 'border-b bg-amber-50 shadow-[inset_0_0_0_1px_hsl(var(--amber-400)/0.45)] last:border-b-0';
+        return 'dirty';
     }
     if (row.hasPatch) {
+        return 'patched';
+    }
+    if (row.isMissingTranslation) {
+        return 'missing';
+    }
+    return 'default';
+};
+
+const getRowClassName = (row: TranslationRowData) => {
+    const tone = getTranslationRowTone(row);
+    if (tone === 'invalid') {
+        return 'border-b bg-destructive/5 shadow-[inset_0_0_0_1px_hsl(var(--destructive)/0.35)] last:border-b-0';
+    }
+    if (tone === 'skipped') {
+        return 'border-b bg-muted/30 opacity-75 last:border-b-0';
+    }
+    if (tone === 'dirty') {
+        return 'border-b bg-amber-50 shadow-[inset_0_0_0_1px_hsl(var(--amber-400)/0.45)] last:border-b-0';
+    }
+    if (tone === 'patched') {
         return 'border-b bg-amber-50/70 shadow-[inset_0_0_0_1px_hsl(var(--amber-400)/0.25)] last:border-b-0';
     }
     return 'border-b last:border-b-0';
 };
 
 const getRowIdClassName = (row: TranslationRowData) => {
-    if (row.validationMessages.length > 0) {
+    const tone = getTranslationRowTone(row);
+    if (tone === 'invalid') {
         return 'px-4 py-3 align-top font-mono font-semibold text-[10px] text-destructive';
     }
-    if (row.isSkipped) {
+    if (tone === 'skipped') {
         return 'px-4 py-3 align-top font-mono font-semibold text-[10px] text-muted-foreground';
     }
-    if (row.isDirty) {
+    if (tone === 'dirty') {
         return 'px-4 py-3 align-top font-mono font-semibold text-[10px] text-amber-900';
     }
-    if (row.hasPatch) {
+    if (tone === 'patched') {
         return 'px-4 py-3 align-top font-mono font-semibold text-[10px] text-amber-800';
     }
     return 'px-4 py-3 align-top font-mono text-[10px] text-muted-foreground';
 };
 
-const getTranslationControlClassName = (row: TranslationRowData, mode: 'button' | 'textarea') => {
-    if (row.validationMessages.length > 0) {
-        return mode === 'button'
-            ? 'block w-full rounded border border-destructive/30 bg-background px-3 py-2 text-left font-medium text-destructive shadow-sm transition-colors hover:bg-destructive/5'
-            : 'block w-full resize-none overflow-hidden rounded border border-destructive/30 bg-background px-3 py-2 font-medium text-[10px] text-destructive leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-destructive/40';
-    }
-
-    if (row.isSkipped) {
-        return mode === 'button'
-            ? 'block w-full rounded border border-muted bg-muted/20 px-3 py-2 text-left text-muted-foreground shadow-sm transition-colors hover:bg-muted/30'
-            : 'block w-full resize-none overflow-hidden rounded border border-muted bg-muted/10 px-3 py-2 text-[10px] text-muted-foreground leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30';
-    }
-
-    if (row.isDirty) {
-        return mode === 'button'
-            ? 'block w-full rounded border border-amber-400/50 bg-amber-50 px-3 py-2 text-left font-medium text-amber-900 shadow-sm transition-colors hover:bg-amber-100/60'
-            : 'block w-full resize-none overflow-hidden rounded border border-amber-400/50 bg-amber-50 px-3 py-2 font-medium text-[10px] text-amber-900 leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40';
-    }
-
-    if (row.hasPatch) {
-        return mode === 'button'
-            ? 'block w-full rounded border border-amber-400/40 bg-amber-50/60 px-3 py-2 text-left font-medium text-amber-950 shadow-sm transition-colors hover:bg-amber-100/40'
-            : 'block w-full resize-none overflow-hidden rounded border border-amber-400/40 bg-amber-50/60 px-3 py-2 font-medium text-[10px] text-amber-950 leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40';
-    }
-
-    if (row.isMissingTranslation) {
-        return mode === 'button'
-            ? 'block w-full rounded border border-dashed border-destructive/30 bg-destructive/5 px-3 py-2 text-left font-medium text-destructive shadow-sm transition-colors hover:bg-destructive/10'
-            : 'block w-full resize-none overflow-hidden rounded border border-dashed border-destructive/30 bg-background px-3 py-2 font-medium text-[10px] text-foreground leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-destructive/30';
-    }
-
-    return mode === 'button'
-        ? 'block w-full rounded border border-input bg-background px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted/40'
-        : 'block w-full resize-none overflow-hidden rounded border border-input bg-background px-3 py-2 text-[10px] leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40';
+const TRANSLATION_CONTROL_CLASS_NAMES: Record<TranslationRowTone, Record<'button' | 'textarea', string>> = {
+    default: {
+        button: 'block w-full rounded border border-input bg-background px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted/40',
+        textarea:
+            'block w-full resize-none overflow-hidden rounded border border-input bg-background px-3 py-2 text-[10px] leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+    },
+    dirty: {
+        button: 'block w-full rounded border border-amber-400/50 bg-amber-50 px-3 py-2 text-left font-medium text-amber-900 shadow-sm transition-colors hover:bg-amber-100/60',
+        textarea:
+            'block w-full resize-none overflow-hidden rounded border border-amber-400/50 bg-amber-50 px-3 py-2 font-medium text-[10px] text-amber-900 leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40',
+    },
+    invalid: {
+        button: 'block w-full rounded border border-destructive/30 bg-background px-3 py-2 text-left font-medium text-destructive shadow-sm transition-colors hover:bg-destructive/5',
+        textarea:
+            'block w-full resize-none overflow-hidden rounded border border-destructive/30 bg-background px-3 py-2 font-medium text-[10px] text-destructive leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-destructive/40',
+    },
+    missing: {
+        button: 'block w-full rounded border border-dashed border-destructive/30 bg-destructive/5 px-3 py-2 text-left font-medium text-destructive shadow-sm transition-colors hover:bg-destructive/10',
+        textarea:
+            'block w-full resize-none overflow-hidden rounded border border-dashed border-destructive/30 bg-background px-3 py-2 font-medium text-[10px] text-foreground leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-destructive/30',
+    },
+    patched: {
+        button: 'block w-full rounded border border-amber-400/40 bg-amber-50/60 px-3 py-2 text-left font-medium text-amber-950 shadow-sm transition-colors hover:bg-amber-100/40',
+        textarea:
+            'block w-full resize-none overflow-hidden rounded border border-amber-400/40 bg-amber-50/60 px-3 py-2 font-medium text-[10px] text-amber-950 leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40',
+    },
+    skipped: {
+        button: 'block w-full rounded border border-muted bg-muted/20 px-3 py-2 text-left text-muted-foreground shadow-sm transition-colors hover:bg-muted/30',
+        textarea:
+            'block w-full resize-none overflow-hidden rounded border border-muted bg-muted/10 px-3 py-2 text-[10px] text-muted-foreground leading-normal shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+    },
 };
+
+const getTranslationControlClassName = (row: TranslationRowData, mode: 'button' | 'textarea') =>
+    TRANSLATION_CONTROL_CLASS_NAMES[getTranslationRowTone(row)][mode];
 
 const getValidationMessagesClassName = (row: TranslationRowData) => {
     if (row.isDirty) {
@@ -86,6 +109,110 @@ const getValidationMessageTextClassName = (row: TranslationRowData) =>
 
 const getTranslationTextClassName = (row: TranslationRowData) =>
     row.hasPatch ? 'whitespace-pre-wrap pr-6' : 'whitespace-pre-wrap';
+
+const TranslationSelectionToolbar = ({
+    canSkipSelected,
+    canUnskipSelected,
+    isUpdatingSkip,
+    onBulkSetSkip,
+    selectedCount,
+}: {
+    canSkipSelected: boolean;
+    canUnskipSelected: boolean;
+    isUpdatingSkip: boolean;
+    onBulkSetSkip: (skipped: boolean) => void;
+    selectedCount: number;
+}) => (
+    <div className="flex items-center justify-between rounded-md border bg-muted/20 px-4 py-3 text-sm">
+        <p className="text-muted-foreground">{selectedCount} rows selected.</p>
+        <div className="flex items-center gap-2">
+            <button
+                className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 font-medium text-xs transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canSkipSelected || isUpdatingSkip}
+                onClick={() => onBulkSetSkip(true)}
+                type="button"
+            >
+                Skip selected
+            </button>
+            <button
+                className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 font-medium text-xs transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canUnskipSelected || isUpdatingSkip}
+                onClick={() => onBulkSetSkip(false)}
+                type="button"
+            >
+                Unskip selected
+            </button>
+        </div>
+    </div>
+);
+
+const TranslationTableStatus = ({
+    arabicLeakFixError,
+    isFixingArabicLeaks,
+    model,
+    onAutoFixArabicLeaks,
+}: {
+    arabicLeakFixError: string | null;
+    isFixingArabicLeaks: boolean;
+    model: TranslationTableModel;
+    onAutoFixArabicLeaks: () => void;
+}) => (
+    <>
+        {model.hasPatches ? (
+            <div className="rounded-md border border-amber-400/30 bg-amber-50 p-4 text-sm">
+                <p className="font-medium text-amber-950">Patched excerpts are applied in this file.</p>
+                <p className="mt-1 text-muted-foreground">Patched rows: {model.patchedRowCount}</p>
+            </div>
+        ) : null}
+
+        {model.isSourceAlignedToResponse ? (
+            <div className="rounded-md border border-amber-400/30 bg-amber-50 p-4 text-sm">
+                <p className="font-medium text-amber-950">The source block was aligned to the final response block.</p>
+                <p className="mt-1 text-muted-foreground">
+                    This usually means the prompt included example excerpts before the real translation section.
+                </p>
+            </div>
+        ) : null}
+
+        {!model.isValid ? (
+            <div className="rounded-md border border-destructive/20 bg-destructive/5 p-4 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        {model.hasAlignmentErrors ? (
+                            <>
+                                <p className="font-medium text-destructive">
+                                    The translated response does not match the source excerpts.
+                                </p>
+                                <p className="mt-1 text-muted-foreground">
+                                    Source IDs: {model.sourceIds.join(', ') || 'None'}
+                                </p>
+                                <p className="mt-1 text-muted-foreground">
+                                    Response IDs: {model.responseIds.join(', ') || 'None'}
+                                </p>
+                            </>
+                        ) : (
+                            <p className="font-medium text-destructive">Errors found.</p>
+                        )}
+                        {arabicLeakFixError ? (
+                            <p className="mt-2 text-destructive text-xs">{arabicLeakFixError}</p>
+                        ) : null}
+                    </div>
+                    {model.arabicLeakExcerpts.length > 0 || model.allCapsExcerpts.length > 0 ? (
+                        <button
+                            className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-amber-400/40 bg-amber-50 px-3 font-medium text-amber-950 text-xs shadow-sm transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={isFixingArabicLeaks}
+                            onClick={onAutoFixArabicLeaks}
+                            type="button"
+                        >
+                            <Wrench className="mr-2 size-3.5" />
+                            {isFixingArabicLeaks ? 'Fixing supported errors...' : 'Fix supported errors'}
+                        </button>
+                    ) : null}
+                </div>
+            </div>
+        ) : null}
+    </>
+);
 
 const TranslationRow = ({
     isEditing,
@@ -207,6 +334,7 @@ export const TranslationTableView = ({
     skippingRowId,
 }: TranslationTableViewProps) => {
     const [editingRowId, setEditingRowId] = useState<string | null>(null);
+    const selectedRowIdSet = useMemo(() => new Set(selectedRowIds), [selectedRowIds]);
 
     if (!model) {
         return (
@@ -218,89 +346,28 @@ export const TranslationTableView = ({
 
     const allRowsSelected = model.rows.length > 0 && selectedRowIds.length === model.rows.length;
     const someRowsSelected = selectedRowIds.length > 0 && selectedRowIds.length < model.rows.length;
-    const selectedRows = model.rows.filter((row) => selectedRowIds.includes(row.id));
+    const selectedRows = model.rows.filter((row) => selectedRowIdSet.has(row.id));
     const canSkipSelected = selectedRows.some((row) => !row.isSkipped);
     const canUnskipSelected = selectedRows.some((row) => row.isSkipped);
 
     return (
         <div className="flex h-full min-h-0 flex-col gap-4">
             {selectedRowIds.length > 0 ? (
-                <div className="flex items-center justify-between rounded-md border bg-muted/20 px-4 py-3 text-sm">
-                    <p className="text-muted-foreground">{selectedRowIds.length} rows selected.</p>
-                    <div className="flex items-center gap-2">
-                        <button
-                            className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 font-medium text-xs transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                            disabled={!canSkipSelected || isUpdatingSkip}
-                            onClick={() => onBulkSetSkip(true)}
-                            type="button"
-                        >
-                            Skip selected
-                        </button>
-                        <button
-                            className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 font-medium text-xs transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                            disabled={!canUnskipSelected || isUpdatingSkip}
-                            onClick={() => onBulkSetSkip(false)}
-                            type="button"
-                        >
-                            Unskip selected
-                        </button>
-                    </div>
-                </div>
+                <TranslationSelectionToolbar
+                    canSkipSelected={canSkipSelected}
+                    canUnskipSelected={canUnskipSelected}
+                    isUpdatingSkip={isUpdatingSkip}
+                    onBulkSetSkip={onBulkSetSkip}
+                    selectedCount={selectedRowIds.length}
+                />
             ) : null}
 
-            {model.hasPatches ? (
-                <div className="rounded-md border border-amber-400/30 bg-amber-50 p-4 text-sm">
-                    <p className="font-medium text-amber-950">Patched excerpts are applied in this file.</p>
-                    <p className="mt-1 text-muted-foreground">Patched rows: {model.patchedRowCount}</p>
-                </div>
-            ) : null}
-
-            {model.isSourceAlignedToResponse ? (
-                <div className="rounded-md border border-amber-400/30 bg-amber-50 p-4 text-sm">
-                    <p className="font-medium text-amber-950">The source block was aligned to the final response block.</p>
-                    <p className="mt-1 text-muted-foreground">
-                        This usually means the prompt included example excerpts before the real translation section.
-                    </p>
-                </div>
-            ) : null}
-
-            {!model.isValid ? (
-                <div className="rounded-md border border-destructive/20 bg-destructive/5 p-4 text-sm">
-                    <div className="flex items-start justify-between gap-3">
-                        <div>
-                            {model.hasAlignmentErrors ? (
-                                <>
-                                    <p className="font-medium text-destructive">
-                                        The translated response does not match the source excerpts.
-                                    </p>
-                                    <p className="mt-1 text-muted-foreground">
-                                        Source IDs: {model.sourceIds.join(', ') || 'None'}
-                                    </p>
-                                    <p className="mt-1 text-muted-foreground">
-                                        Response IDs: {model.responseIds.join(', ') || 'None'}
-                                    </p>
-                                </>
-                            ) : (
-                                <p className="font-medium text-destructive">Errors found.</p>
-                            )}
-                            {arabicLeakFixError ? (
-                                <p className="mt-2 text-destructive text-xs">{arabicLeakFixError}</p>
-                            ) : null}
-                        </div>
-                        {model.arabicLeakExcerpts.length > 0 || model.allCapsExcerpts.length > 0 ? (
-                            <button
-                                className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-amber-400/40 bg-amber-50 px-3 font-medium text-amber-950 text-xs shadow-sm transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-                                disabled={isFixingArabicLeaks}
-                                onClick={onAutoFixArabicLeaks}
-                                type="button"
-                            >
-                                <Wrench className="mr-2 size-3.5" />
-                                {isFixingArabicLeaks ? 'Fixing supported errors...' : 'Fix supported errors'}
-                            </button>
-                        ) : null}
-                    </div>
-                </div>
-            ) : null}
+            <TranslationTableStatus
+                arabicLeakFixError={arabicLeakFixError}
+                isFixingArabicLeaks={isFixingArabicLeaks}
+                model={model}
+                onAutoFixArabicLeaks={onAutoFixArabicLeaks}
+            />
 
             <div className="flex-1 overflow-auto rounded-md border">
                 <table className="w-full">
@@ -331,7 +398,7 @@ export const TranslationTableView = ({
                             <TranslationRow
                                 key={row.id}
                                 isEditing={editingRowId === row.id}
-                                isSelected={selectedRowIds.includes(row.id)}
+                                isSelected={selectedRowIdSet.has(row.id)}
                                 onDraftChange={onDraftChange}
                                 onStartEditing={setEditingRowId}
                                 onStopEditing={() => setEditingRowId(null)}

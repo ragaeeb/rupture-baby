@@ -60,10 +60,14 @@ describe('split-conversations script', () => {
 
         await execFileAsync('zip', ['-q', '-r', archivePath, 'ttl'], { cwd: tempDir });
 
-        const { stdout, stderr } = await execFileAsync('bun', ['run', 'scripts/split-conversations.ts', '--write'], {
-            cwd: '/Users/rhaq/workspace/rupture-baby',
-            env: { ...process.env, TRANSLATIONS_DIR: translationsDir },
-        });
+        const { stdout, stderr } = await execFileAsync(
+            process.execPath,
+            ['run', 'scripts/split-conversations.ts', '--write'],
+            {
+                cwd: path.resolve(import.meta.dirname, '..'),
+                env: { ...process.env, TRANSLATIONS_DIR: translationsDir },
+            },
+        );
 
         expect(stderr).toBe('');
         expect(stdout).toContain('account-export.zip');

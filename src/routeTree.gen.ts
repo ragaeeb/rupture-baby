@@ -15,8 +15,11 @@ import { Route as BrowseRouteImport } from './app/_browse'
 import { Route as BrowseIndexRouteImport } from './app/_browse/index'
 import { Route as ApiMetaRouteImport } from './app/api/meta'
 import { Route as BrowseValidRouteImport } from './app/_browse/valid'
+import { Route as BrowseShiftRouteImport } from './app/_browse/shift'
 import { Route as BrowseInvalidRouteImport } from './app/_browse/invalid'
+import { Route as BrowseExportsRouteImport } from './app/_browse/exports'
 import { Route as BrowseDashboardRouteImport } from './app/_browse/dashboard'
+import { Route as BrowseCompilationRouteImport } from './app/_browse/compilation'
 import { Route as BrowseAnalyticsRouteImport } from './app/_browse/analytics'
 import { Route as BrowseTranslationsRouteRouteImport } from './app/_browse/translations/route'
 import { Route as BrowseTranslationsIndexRouteImport } from './app/_browse/translations/index'
@@ -29,6 +32,7 @@ import { Route as ApiTranslationsIdRouteImport } from './app/api/translations/$i
 import { Route as ApiDashboardStatsRouteImport } from './app/api/dashboard/stats'
 import { Route as ApiConfigPathsRouteImport } from './app/api/config/paths'
 import { Route as ApiCompilationPromptRouteImport } from './app/api/compilation/prompt'
+import { Route as ApiCompilationExportRouteImport } from './app/api/compilation/export'
 import { Route as ApiCompilationExcerptsRouteImport } from './app/api/compilation/excerpts'
 import { Route as BrowseTranslationsFileNameIdRouteImport } from './app/_browse/translations/$fileNameId'
 import { Route as ApiCompilationExcerptsShiftRouteImport } from './app/api/compilation/excerpts/shift'
@@ -63,14 +67,29 @@ const BrowseValidRoute = BrowseValidRouteImport.update({
   path: '/valid',
   getParentRoute: () => BrowseRoute,
 } as any)
+const BrowseShiftRoute = BrowseShiftRouteImport.update({
+  id: '/shift',
+  path: '/shift',
+  getParentRoute: () => BrowseRoute,
+} as any)
 const BrowseInvalidRoute = BrowseInvalidRouteImport.update({
   id: '/invalid',
   path: '/invalid',
   getParentRoute: () => BrowseRoute,
 } as any)
+const BrowseExportsRoute = BrowseExportsRouteImport.update({
+  id: '/exports',
+  path: '/exports',
+  getParentRoute: () => BrowseRoute,
+} as any)
 const BrowseDashboardRoute = BrowseDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => BrowseRoute,
+} as any)
+const BrowseCompilationRoute = BrowseCompilationRouteImport.update({
+  id: '/compilation',
+  path: '/compilation',
   getParentRoute: () => BrowseRoute,
 } as any)
 const BrowseAnalyticsRoute = BrowseAnalyticsRouteImport.update({
@@ -133,6 +152,11 @@ const ApiCompilationPromptRoute = ApiCompilationPromptRouteImport.update({
   path: '/api/compilation/prompt',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCompilationExportRoute = ApiCompilationExportRouteImport.update({
+  id: '/api/compilation/export',
+  path: '/api/compilation/export',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCompilationExcerptsRoute = ApiCompilationExcerptsRouteImport.update({
   id: '/api/compilation/excerpts',
   path: '/api/compilation/excerpts',
@@ -163,12 +187,16 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/translations': typeof BrowseTranslationsRouteRouteWithChildren
   '/analytics': typeof BrowseAnalyticsRoute
+  '/compilation': typeof BrowseCompilationRoute
   '/dashboard': typeof BrowseDashboardRoute
+  '/exports': typeof BrowseExportsRoute
   '/invalid': typeof BrowseInvalidRoute
+  '/shift': typeof BrowseShiftRoute
   '/valid': typeof BrowseValidRoute
   '/api/meta': typeof ApiMetaRoute
   '/translations/$fileNameId': typeof BrowseTranslationsFileNameIdRoute
   '/api/compilation/excerpts': typeof ApiCompilationExcerptsRouteWithChildren
+  '/api/compilation/export': typeof ApiCompilationExportRoute
   '/api/compilation/prompt': typeof ApiCompilationPromptRoute
   '/api/config/paths': typeof ApiConfigPathsRoute
   '/api/dashboard/stats': typeof ApiDashboardStatsRoute
@@ -186,13 +214,17 @@ export interface FileRoutesByTo {
   '/prompts': typeof PromptsRoute
   '/settings': typeof SettingsRoute
   '/analytics': typeof BrowseAnalyticsRoute
+  '/compilation': typeof BrowseCompilationRoute
   '/dashboard': typeof BrowseDashboardRoute
+  '/exports': typeof BrowseExportsRoute
   '/invalid': typeof BrowseInvalidRoute
+  '/shift': typeof BrowseShiftRoute
   '/valid': typeof BrowseValidRoute
   '/api/meta': typeof ApiMetaRoute
   '/': typeof BrowseIndexRoute
   '/translations/$fileNameId': typeof BrowseTranslationsFileNameIdRoute
   '/api/compilation/excerpts': typeof ApiCompilationExcerptsRouteWithChildren
+  '/api/compilation/export': typeof ApiCompilationExportRoute
   '/api/compilation/prompt': typeof ApiCompilationPromptRoute
   '/api/config/paths': typeof ApiConfigPathsRoute
   '/api/dashboard/stats': typeof ApiDashboardStatsRoute
@@ -213,13 +245,17 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/_browse/translations': typeof BrowseTranslationsRouteRouteWithChildren
   '/_browse/analytics': typeof BrowseAnalyticsRoute
+  '/_browse/compilation': typeof BrowseCompilationRoute
   '/_browse/dashboard': typeof BrowseDashboardRoute
+  '/_browse/exports': typeof BrowseExportsRoute
   '/_browse/invalid': typeof BrowseInvalidRoute
+  '/_browse/shift': typeof BrowseShiftRoute
   '/_browse/valid': typeof BrowseValidRoute
   '/api/meta': typeof ApiMetaRoute
   '/_browse/': typeof BrowseIndexRoute
   '/_browse/translations/$fileNameId': typeof BrowseTranslationsFileNameIdRoute
   '/api/compilation/excerpts': typeof ApiCompilationExcerptsRouteWithChildren
+  '/api/compilation/export': typeof ApiCompilationExportRoute
   '/api/compilation/prompt': typeof ApiCompilationPromptRoute
   '/api/config/paths': typeof ApiConfigPathsRoute
   '/api/dashboard/stats': typeof ApiDashboardStatsRoute
@@ -241,12 +277,16 @@ export interface FileRouteTypes {
     | '/settings'
     | '/translations'
     | '/analytics'
+    | '/compilation'
     | '/dashboard'
+    | '/exports'
     | '/invalid'
+    | '/shift'
     | '/valid'
     | '/api/meta'
     | '/translations/$fileNameId'
     | '/api/compilation/excerpts'
+    | '/api/compilation/export'
     | '/api/compilation/prompt'
     | '/api/config/paths'
     | '/api/dashboard/stats'
@@ -264,13 +304,17 @@ export interface FileRouteTypes {
     | '/prompts'
     | '/settings'
     | '/analytics'
+    | '/compilation'
     | '/dashboard'
+    | '/exports'
     | '/invalid'
+    | '/shift'
     | '/valid'
     | '/api/meta'
     | '/'
     | '/translations/$fileNameId'
     | '/api/compilation/excerpts'
+    | '/api/compilation/export'
     | '/api/compilation/prompt'
     | '/api/config/paths'
     | '/api/dashboard/stats'
@@ -290,13 +334,17 @@ export interface FileRouteTypes {
     | '/settings'
     | '/_browse/translations'
     | '/_browse/analytics'
+    | '/_browse/compilation'
     | '/_browse/dashboard'
+    | '/_browse/exports'
     | '/_browse/invalid'
+    | '/_browse/shift'
     | '/_browse/valid'
     | '/api/meta'
     | '/_browse/'
     | '/_browse/translations/$fileNameId'
     | '/api/compilation/excerpts'
+    | '/api/compilation/export'
     | '/api/compilation/prompt'
     | '/api/config/paths'
     | '/api/dashboard/stats'
@@ -317,6 +365,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   ApiMetaRoute: typeof ApiMetaRoute
   ApiCompilationExcerptsRoute: typeof ApiCompilationExcerptsRouteWithChildren
+  ApiCompilationExportRoute: typeof ApiCompilationExportRoute
   ApiCompilationPromptRoute: typeof ApiCompilationPromptRoute
   ApiConfigPathsRoute: typeof ApiConfigPathsRoute
   ApiDashboardStatsRoute: typeof ApiDashboardStatsRoute
@@ -372,6 +421,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BrowseValidRouteImport
       parentRoute: typeof BrowseRoute
     }
+    '/_browse/shift': {
+      id: '/_browse/shift'
+      path: '/shift'
+      fullPath: '/shift'
+      preLoaderRoute: typeof BrowseShiftRouteImport
+      parentRoute: typeof BrowseRoute
+    }
     '/_browse/invalid': {
       id: '/_browse/invalid'
       path: '/invalid'
@@ -379,11 +435,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BrowseInvalidRouteImport
       parentRoute: typeof BrowseRoute
     }
+    '/_browse/exports': {
+      id: '/_browse/exports'
+      path: '/exports'
+      fullPath: '/exports'
+      preLoaderRoute: typeof BrowseExportsRouteImport
+      parentRoute: typeof BrowseRoute
+    }
     '/_browse/dashboard': {
       id: '/_browse/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof BrowseDashboardRouteImport
+      parentRoute: typeof BrowseRoute
+    }
+    '/_browse/compilation': {
+      id: '/_browse/compilation'
+      path: '/compilation'
+      fullPath: '/compilation'
+      preLoaderRoute: typeof BrowseCompilationRouteImport
       parentRoute: typeof BrowseRoute
     }
     '/_browse/analytics': {
@@ -470,6 +540,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCompilationPromptRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/compilation/export': {
+      id: '/api/compilation/export'
+      path: '/api/compilation/export'
+      fullPath: '/api/compilation/export'
+      preLoaderRoute: typeof ApiCompilationExportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/compilation/excerpts': {
       id: '/api/compilation/excerpts'
       path: '/api/compilation/excerpts'
@@ -520,8 +597,11 @@ const BrowseTranslationsRouteRouteWithChildren =
 interface BrowseRouteChildren {
   BrowseTranslationsRouteRoute: typeof BrowseTranslationsRouteRouteWithChildren
   BrowseAnalyticsRoute: typeof BrowseAnalyticsRoute
+  BrowseCompilationRoute: typeof BrowseCompilationRoute
   BrowseDashboardRoute: typeof BrowseDashboardRoute
+  BrowseExportsRoute: typeof BrowseExportsRoute
   BrowseInvalidRoute: typeof BrowseInvalidRoute
+  BrowseShiftRoute: typeof BrowseShiftRoute
   BrowseValidRoute: typeof BrowseValidRoute
   BrowseIndexRoute: typeof BrowseIndexRoute
 }
@@ -529,8 +609,11 @@ interface BrowseRouteChildren {
 const BrowseRouteChildren: BrowseRouteChildren = {
   BrowseTranslationsRouteRoute: BrowseTranslationsRouteRouteWithChildren,
   BrowseAnalyticsRoute: BrowseAnalyticsRoute,
+  BrowseCompilationRoute: BrowseCompilationRoute,
   BrowseDashboardRoute: BrowseDashboardRoute,
+  BrowseExportsRoute: BrowseExportsRoute,
   BrowseInvalidRoute: BrowseInvalidRoute,
+  BrowseShiftRoute: BrowseShiftRoute,
   BrowseValidRoute: BrowseValidRoute,
   BrowseIndexRoute: BrowseIndexRoute,
 }
@@ -560,6 +643,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   ApiMetaRoute: ApiMetaRoute,
   ApiCompilationExcerptsRoute: ApiCompilationExcerptsRouteWithChildren,
+  ApiCompilationExportRoute: ApiCompilationExportRoute,
   ApiCompilationPromptRoute: ApiCompilationPromptRoute,
   ApiConfigPathsRoute: ApiConfigPathsRoute,
   ApiDashboardStatsRoute: ApiDashboardStatsRoute,

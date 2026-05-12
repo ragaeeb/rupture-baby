@@ -1,7 +1,7 @@
 import '@tanstack/react-start/server-only';
 
-import { buildArabicLeakCorrectionPrompt, parseTextCorrectionResponse } from '@/lib/llm/arabic-leak-prompt';
 import { buildAllCapsCorrectionPrompt } from '@/lib/llm/all-caps-prompt';
+import { buildArabicLeakCorrectionPrompt, parseTextCorrectionResponse } from '@/lib/llm/arabic-leak-prompt';
 import type { TranslationAssistProvider } from '@/lib/llm/types';
 import type { TranslationAssistRequest, TranslationTextCorrection } from '@/lib/shell-types';
 
@@ -113,7 +113,10 @@ const getStructuredPreview = (value: unknown, maxLength = 3000) => {
     return getResponsePreview(serialized, maxLength);
 };
 
-const requestChunkCorrections = async (request: TranslationAssistRequest, chunk: TranslationAssistRequest['excerpts']) => {
+const requestChunkCorrections = async (
+    request: TranslationAssistRequest,
+    chunk: TranslationAssistRequest['excerpts'],
+) => {
     const model = getHuggingFaceModel();
     const excerptById = new Map<string, TranslationAssistRequest['excerpts'][number]>();
 
@@ -309,7 +312,8 @@ export const huggingFaceTranslationAssistProvider: TranslationAssistProvider = {
         };
     },
 };
-const buildPromptForTask = (request: TranslationAssistRequest, excerpts: TranslationAssistRequest['excerpts']) =>
-    request.task === 'all_caps_correction'
+const buildPromptForTask = (request: TranslationAssistRequest, excerpts: TranslationAssistRequest['excerpts']) => {
+    return request.task === 'all_caps_correction'
         ? buildAllCapsCorrectionPrompt(excerpts)
         : buildArabicLeakCorrectionPrompt(excerpts);
+};

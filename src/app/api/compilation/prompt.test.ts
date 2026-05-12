@@ -1,8 +1,35 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 
-import { getPromptOptions } from '@/lib/prompt-state';
+const MOCK_PROMPT_ID = 'FATAWA';
+const MOCK_PROMPT_CONTENT = 'Translate the following carefully.';
 
-import { GET, POST } from './prompt';
+const state = { selectedPromptId: MOCK_PROMPT_ID };
+
+const mockPrompts = [
+    { content: MOCK_PROMPT_CONTENT, id: MOCK_PROMPT_ID, name: 'Fatawa' },
+    { content: 'Another prompt.', id: 'FIQH', name: 'Fiqh' },
+];
+
+mock.module('@/lib/prompt-state', () => ({
+    getPromptOptions: async () => mockPrompts,
+    getSelectedPrompt: async () => mockPrompts.find((p) => p.id === state.selectedPromptId) ?? mockPrompts[0],
+    setSelectedPrompt: async ({ promptId }: { content: string; promptId: string }) => {
+        const found = mockPrompts.find((p) => p.id === promptId) ?? null;
+        if (found) {
+            state.selectedPromptId = found.id;
+        }
+        return found;
+    },
+    setSelectedPromptById: async (promptId: string) => {
+        const found = mockPrompts.find((p) => p.id === promptId) ?? null;
+        if (found) {
+            state.selectedPromptId = found.id;
+        }
+        return found;
+    },
+}));
+
+const { GET, POST } = await import('./prompt');
 
 describe('GET /api/compilation/prompt', () => {
     it('should return selected prompt id', async () => {
@@ -31,7 +58,7 @@ describe('POST /api/compilation/prompt', () => {
     });
 
     it('should set a valid prompt', async () => {
-        const validPromptId = (await getPromptOptions())[0]?.id;
+        const validPromptId = mockPrompts[0]?.id;
         expect(validPromptId).toBeDefined();
 
         const request = new Request('http://localhost/api/compilation/prompt', {

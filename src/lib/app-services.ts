@@ -2,13 +2,18 @@ import '@tanstack/react-start/server-only';
 
 import { getAppSettings } from '@/lib/app-settings';
 import { getCompilationAnalytics } from '@/lib/compilation-analytics';
+import { getCompilationBrowsePage } from '@/lib/compilation-browser';
+import { getCompilationExportPageData as getCompilationExportPageDataResponse } from '@/lib/compilation-export';
 import { getCompilationPlaybackSimulation, saveCompilationPlayback } from '@/lib/compilation-playback';
+import { getCompilationSelectionState, saveActiveCompilationSelection } from '@/lib/compilation-selection';
 import { getCompilationStats } from '@/lib/compilation-stats';
 import { withPerfSpan } from '@/lib/perf-log';
-import { getPromptOptions, getSelectedPrompt, setSelectedPrompt } from '@/lib/prompt-state';
+import { getPromptOptions, getSelectedPrompt, setSelectedPrompt, setSelectedPromptById } from '@/lib/prompt-state';
 import type {
     AnalyticsPageData,
     BrowseShellData,
+    CompilationBrowsePageData,
+    CompilationExportPageData,
     CompilationPlaybackSimulationResponse,
     DashboardPageData,
     DashboardStatsResponse,
@@ -20,9 +25,11 @@ import type {
     PromptsPageData,
     SaveCompilationPlaybackResponse,
     SettingsPageData,
+    ShiftSettingsPageData,
     TranslationAssistRequest,
     TranslationAssistResponse,
 } from '@/lib/shell-types';
+import { getShiftSettingsInfo, setShiftCheckpointPosition } from '@/lib/shift-cache';
 import { requestTranslationAssistance } from '@/lib/translation-assistance';
 import {
     deleteTranslationJsonFile,
@@ -30,7 +37,11 @@ import {
     getInvalidExcerpts,
     getTranslationStats,
     getTranslationTree,
+    type TranslationPatchOperation,
+    type TranslationSkipOperation,
+    writeTranslationPatches,
     writeTranslationSkip,
+    writeTranslationSkips,
 } from '@/lib/translations-browser';
 import { getAppMeta } from './app-meta';
 import { getErrorMessage } from './error-utils';
@@ -64,8 +75,9 @@ export const getPromptStateResponse = async (): Promise<PromptStateResponse> => 
     return { options, selectedPromptContent: selected.content, selectedPromptId: selected.id };
 };
 
-export const setPromptStateResponse = async (promptId: string, content: string) => {
-    const selected = await setSelectedPrompt({ content, promptId });
+export const setPromptStateResponse = async (promptId: string, content: string | null) => {
+    const selected =
+        content !== null ? await setSelectedPrompt({ content, promptId }) : await setSelectedPromptById(promptId);
 
     if (!selected) {
         const options = await getPromptOptions();
@@ -115,17 +127,28 @@ export const getPromptsPageData = async (): Promise<PromptsPageData> => {
 };
 
 export const getSettingsPageData = async (): Promise<SettingsPageData> => {
-    const [metaResult, settingsResult] = await Promise.allSettled([getAppMeta(), getAppSettings()]);
+    const [compilationSelectionResult, metaResult, settingsResult] = await Promise.allSettled([
+        getCompilationSelectionState(),
+        getAppMeta(),
+        getAppSettings(),
+    ]);
 
     return {
+        compilationSelection:
+            compilationSelectionResult.status === 'fulfilled' ? compilationSelectionResult.value : null,
         error:
             settingsResult.status === 'rejected'
                 ? getErrorMessage(settingsResult.reason, 'Failed to load settings.')
-                : null,
+                : compilationSelectionResult.status === 'rejected'
+                  ? getErrorMessage(compilationSelectionResult.reason, 'Failed to load compilation settings.')
+                  : null,
         meta: metaResult.status === 'fulfilled' ? metaResult.value : null,
         settings: settingsResult.status === 'fulfilled' ? settingsResult.value : null,
     };
 };
+
+export const setActiveCompilationSelectionResponse = async (fileName: string) =>
+    saveActiveCompilationSelection(fileName);
 
 export const requestTranslationAssistResponse = async (
     request: TranslationAssistRequest,
@@ -140,11 +163,6 @@ export const saveCompilationPlaybackResponse = async (): Promise<SaveCompilation
     saveCompilationPlayback();
 
 export const packCompilationFileResponse = async (): Promise<PackCompilationResponse> => {
-    const compilationStats = await getCompilationStats();
-    if (compilationStats.untranslatedSegments > 0) {
-        throw new Error('Compilation still has untranslated segments and cannot be packed yet.');
-    }
-
     const { packCompilationFile } = await import('./compilation-pack');
     return packCompilationFile();
 };
@@ -159,18 +177,67 @@ export const getAnalyticsPageData = async (): Promise<AnalyticsPageData> => {
     });
 };
 
+export const getCompilationBrowsePageData = async ({
+    collection,
+    page,
+    pageSize,
+}: {
+    collection: Parameters<typeof getCompilationBrowsePage>[0]['collection'];
+    page: number;
+    pageSize: number;
+}): Promise<CompilationBrowsePageData> => {
+    return withPerfSpan('app-services', 'get_compilation_browse_page_data', async () => {
+        try {
+            return { browse: await getCompilationBrowsePage({ collection, page, pageSize }), error: null };
+        } catch (error) {
+            return { browse: null, error: getErrorMessage(error, 'Failed to load compilation rows.') };
+        }
+    });
+};
+
+export const getCompilationExportPageData = async ({
+    contextWindowTokens,
+    provider,
+    reservedTokens,
+}: {
+    contextWindowTokens: number;
+    provider: import('@/lib/compilation-export-shared').CompilationExportProviderId;
+    reservedTokens: number;
+}): Promise<CompilationExportPageData> => {
+    return withPerfSpan('app-services', 'get_compilation_export_page_data', async () => {
+        return getCompilationExportPageDataResponse({ contextWindowTokens, provider, reservedTokens });
+    });
+};
+
+export const getShiftSettingsPageData = async (): Promise<ShiftSettingsPageData> => {
+    return withPerfSpan('app-services', 'get_shift_settings_page_data', async () => {
+        try {
+            return { error: null, settings: await getShiftSettingsInfo() };
+        } catch (error) {
+            return { error: getErrorMessage(error, 'Failed to load shift settings.'), settings: null };
+        }
+    });
+};
+
 export const deleteTranslationFileResponse = async (relativePath: string): Promise<DeleteTranslationResponse> => {
     await deleteTranslationJsonFile(relativePath);
     return { deletedPath: relativePath, success: true };
 };
 
 export const deleteTranslationFilesResponse = async (relativePaths: string[]): Promise<DeleteTranslationsResponse> => {
-    for (const relativePath of relativePaths) {
-        await deleteTranslationJsonFile(relativePath);
-    }
+    await Promise.all(relativePaths.map((relativePath) => deleteTranslationJsonFile(relativePath)));
 
     return { deletedPaths: relativePaths, success: true };
 };
 
 export const setTranslationSkipResponse = async (relativePath: string, excerptId: string, skipped: boolean) =>
     writeTranslationSkip(relativePath, excerptId, skipped);
+
+export const setTranslationSkipsResponse = async (relativePath: string, operations: TranslationSkipOperation[]) =>
+    writeTranslationSkips(relativePath, operations);
+
+export const writeTranslationPatchesResponse = async (relativePath: string, operations: TranslationPatchOperation[]) =>
+    writeTranslationPatches(relativePath, operations);
+
+export const setShiftCheckpointPositionResponse = async (shiftedCount: number) =>
+    setShiftCheckpointPosition(shiftedCount);

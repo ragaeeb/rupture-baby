@@ -1,13 +1,33 @@
 import { createServerFn } from '@tanstack/react-start';
 
 import { isAssistProviderId } from '@/lib/assist-provider-ids';
+import {
+    DEFAULT_COMPILATION_BROWSE_COLLECTION,
+    DEFAULT_COMPILATION_BROWSE_PAGE,
+    DEFAULT_COMPILATION_BROWSE_PAGE_SIZE,
+    isCompilationCollectionKey,
+    MAX_COMPILATION_BROWSE_PAGE_SIZE,
+} from '@/lib/compilation-browser-shared';
+import {
+    DEFAULT_COMPILATION_EXPORT_CONTEXT_WINDOW_TOKENS,
+    DEFAULT_COMPILATION_EXPORT_PROVIDER,
+    DEFAULT_COMPILATION_EXPORT_RESERVED_TOKENS,
+    isCompilationExportProviderId,
+    MAX_COMPILATION_EXPORT_CONTEXT_WINDOW_TOKENS,
+    MAX_COMPILATION_EXPORT_RESERVED_TOKENS,
+} from '@/lib/compilation-export-shared';
 import type {
     AnalyticsPageData,
+    CompilationBrowsePageData,
+    CompilationExportPageData,
     CompilationPlaybackSimulationResponse,
+    CompilationSelectionState,
     DashboardPageData,
     DeleteTranslationsResponse,
     PackCompilationResponse,
     SaveCompilationPlaybackResponse,
+    ShiftSettingsPageData,
+    ShiftSettingsResponse,
     TranslationAssistRequest,
     TranslationFileResponse,
 } from '@/lib/shell-types';
@@ -19,6 +39,20 @@ const getNonEmptyString = (value: unknown, fieldName: string) => {
     }
 
     return value.trim();
+};
+
+const assertUniqueBatchExcerptIds = (operations: Array<{ excerptId: string }>, operationKind: 'patch' | 'skip') => {
+    const seenExcerptIds = new Set<string>();
+
+    for (const operation of operations) {
+        if (seenExcerptIds.has(operation.excerptId)) {
+            throw new Error(
+                `Duplicate excerptId "${operation.excerptId}" is not allowed in a batch ${operationKind} request.`,
+            );
+        }
+
+        seenExcerptIds.add(operation.excerptId);
+    }
 };
 
 const validateTranslationFileInput = (value: unknown) => ({
@@ -52,6 +86,77 @@ const validatePromptInput = (value: unknown) => ({
     promptId: getNonEmptyString((value as { promptId?: unknown })?.promptId, 'promptId'),
 });
 
+const validateActiveCompilationInput = (value: unknown) => ({
+    fileName: getNonEmptyString((value as { fileName?: unknown })?.fileName, 'fileName'),
+});
+
+const validateCompilationBrowseInput = (value: unknown) => {
+    if (typeof value !== 'object' || value === null) {
+        throw new Error('Request body must be a JSON object.');
+    }
+
+    const candidate = value as { collection?: unknown; page?: unknown; pageSize?: unknown };
+    const parsedPage =
+        typeof candidate.page === 'number' && Number.isFinite(candidate.page)
+            ? Math.floor(candidate.page)
+            : DEFAULT_COMPILATION_BROWSE_PAGE;
+    const parsedPageSize =
+        typeof candidate.pageSize === 'number' && Number.isFinite(candidate.pageSize)
+            ? Math.floor(candidate.pageSize)
+            : DEFAULT_COMPILATION_BROWSE_PAGE_SIZE;
+
+    return {
+        collection: isCompilationCollectionKey(candidate.collection)
+            ? candidate.collection
+            : DEFAULT_COMPILATION_BROWSE_COLLECTION,
+        page: Math.max(1, parsedPage),
+        pageSize: Math.min(MAX_COMPILATION_BROWSE_PAGE_SIZE, Math.max(1, parsedPageSize)),
+    };
+};
+
+const validateCompilationExportInput = (value: unknown) => {
+    if (typeof value !== 'object' || value === null) {
+        throw new Error('Request body must be a JSON object.');
+    }
+
+    const candidate = value as { contextWindowTokens?: unknown; provider?: unknown; reservedTokens?: unknown };
+    const parsedContextWindowTokens =
+        typeof candidate.contextWindowTokens === 'number' && Number.isFinite(candidate.contextWindowTokens)
+            ? Math.floor(candidate.contextWindowTokens)
+            : DEFAULT_COMPILATION_EXPORT_CONTEXT_WINDOW_TOKENS;
+    const parsedReservedTokens =
+        typeof candidate.reservedTokens === 'number' && Number.isFinite(candidate.reservedTokens)
+            ? Math.floor(candidate.reservedTokens)
+            : DEFAULT_COMPILATION_EXPORT_RESERVED_TOKENS;
+    const provider = isCompilationExportProviderId(candidate.provider)
+        ? candidate.provider
+        : DEFAULT_COMPILATION_EXPORT_PROVIDER;
+    const contextWindowTokens = Math.min(
+        MAX_COMPILATION_EXPORT_CONTEXT_WINDOW_TOKENS,
+        Math.max(1, parsedContextWindowTokens),
+    );
+    const reservedTokens = Math.min(MAX_COMPILATION_EXPORT_RESERVED_TOKENS, Math.max(0, parsedReservedTokens));
+
+    if (reservedTokens >= contextWindowTokens) {
+        throw new Error('Reserved tokens must be smaller than the context window token budget.');
+    }
+
+    return { contextWindowTokens, provider, reservedTokens };
+};
+
+const validateShiftSettingsInput = (value: unknown) => {
+    if (typeof value !== 'object' || value === null) {
+        throw new Error('Request body must be a JSON object.');
+    }
+
+    const shiftedCount = (value as { shiftedCount?: unknown }).shiftedCount;
+    if (typeof shiftedCount !== 'number' || !Number.isFinite(shiftedCount)) {
+        throw new Error('Field "shiftedCount" must be a finite number.');
+    }
+
+    return { shiftedCount: Math.max(0, Math.floor(shiftedCount)) };
+};
+
 const validatePatchInput = (value: unknown) => {
     if (typeof value !== 'object' || value === null) {
         throw new Error('Request body must be a JSON object.');
@@ -80,6 +185,43 @@ const validatePatchInput = (value: unknown) => {
     };
 };
 
+const validatePatchBatchInput = (value: unknown) => {
+    if (typeof value !== 'object' || value === null) {
+        throw new Error('Request body must be a JSON object.');
+    }
+
+    const relativePath = getNonEmptyString((value as { relativePath?: unknown }).relativePath, 'relativePath');
+    const operations = (value as { operations?: unknown }).operations;
+
+    if (!Array.isArray(operations) || operations.length === 0) {
+        throw new Error('Field "operations" must be a non-empty array.');
+    }
+
+    const normalizedOperations = operations.map((operation, index) => {
+        if (typeof operation !== 'object' || operation === null) {
+            throw new Error(`operations[${index}] must be an object.`);
+        }
+
+        const candidate = operation as { excerptId?: unknown; patch?: unknown; patchMetadata?: unknown };
+        if (candidate.patch !== null && !isRupturePatch(candidate.patch)) {
+            throw new Error(`operations[${index}].patch must be a patch object or null.`);
+        }
+
+        if (typeof candidate.patchMetadata !== 'undefined' && !isRupturePatchMetadata(candidate.patchMetadata)) {
+            throw new Error(`operations[${index}].patchMetadata must be a valid patch metadata object.`);
+        }
+
+        return {
+            excerptId: getNonEmptyString(candidate.excerptId, `operations[${index}].excerptId`),
+            patch: candidate.patch,
+            patchMetadata: candidate.patchMetadata,
+        };
+    });
+    assertUniqueBatchExcerptIds(normalizedOperations, 'patch');
+
+    return { operations: normalizedOperations, relativePath };
+};
+
 const validateSkipInput = (value: unknown) => {
     if (typeof value !== 'object' || value === null) {
         throw new Error('Request body must be a JSON object.');
@@ -97,6 +239,39 @@ const validateSkipInput = (value: unknown) => {
                       throw new Error('Field "skipped" must be a boolean.');
                   })(),
     };
+};
+
+const validateSkipBatchInput = (value: unknown) => {
+    if (typeof value !== 'object' || value === null) {
+        throw new Error('Request body must be a JSON object.');
+    }
+
+    const relativePath = getNonEmptyString((value as { relativePath?: unknown }).relativePath, 'relativePath');
+    const operations = (value as { operations?: unknown }).operations;
+
+    if (!Array.isArray(operations) || operations.length === 0) {
+        throw new Error('Field "operations" must be a non-empty array.');
+    }
+
+    const normalizedOperations = operations.map((operation, index) => {
+        if (typeof operation !== 'object' || operation === null) {
+            throw new Error(`operations[${index}] must be an object.`);
+        }
+
+        const candidate = operation as { excerptId?: unknown; skipped?: unknown };
+        return {
+            excerptId: getNonEmptyString(candidate.excerptId, `operations[${index}].excerptId`),
+            skipped:
+                typeof candidate.skipped === 'boolean'
+                    ? candidate.skipped
+                    : (() => {
+                          throw new Error(`operations[${index}].skipped must be a boolean.`);
+                      })(),
+        };
+    });
+    assertUniqueBatchExcerptIds(normalizedOperations, 'skip');
+
+    return { operations: normalizedOperations, relativePath };
 };
 
 const isValidAssistRequest = (value: unknown): value is TranslationAssistRequest => {
@@ -156,15 +331,41 @@ export const fetchAnalyticsPageData = createServerFn({ method: 'GET' }).handler(
     },
 );
 
+export const fetchCompilationBrowsePageData = createServerFn({ method: 'GET' })
+    .inputValidator(validateCompilationBrowseInput)
+    .handler(async ({ data }): Promise<CompilationBrowsePageData> => {
+        const { getCompilationBrowsePageData } = await import('@/lib/app-services');
+        return getCompilationBrowsePageData(data);
+    });
+
+export const fetchCompilationExportPageData = createServerFn({ method: 'GET' })
+    .inputValidator(validateCompilationExportInput)
+    .handler(async ({ data }): Promise<CompilationExportPageData> => {
+        const { getCompilationExportPageData } = await import('@/lib/app-services');
+        return getCompilationExportPageData(data);
+    });
+
 export const fetchPromptsPageData = createServerFn({ method: 'GET' }).handler(async () => {
     const { getPromptsPageData } = await import('@/lib/app-services');
     return getPromptsPageData();
+});
+
+export const fetchPromptStateData = createServerFn({ method: 'GET' }).handler(async () => {
+    const { getPromptStateResponse } = await import('@/lib/app-services');
+    return getPromptStateResponse();
 });
 
 export const fetchSettingsPageData = createServerFn({ method: 'GET' }).handler(async () => {
     const { getSettingsPageData } = await import('@/lib/app-services');
     return getSettingsPageData();
 });
+
+export const fetchShiftSettingsPageData = createServerFn({ method: 'GET' }).handler(
+    async (): Promise<ShiftSettingsPageData> => {
+        const { getShiftSettingsPageData } = await import('@/lib/app-services');
+        return getShiftSettingsPageData();
+    },
+);
 
 export const fetchInvalidExcerptsData = createServerFn({ method: 'GET' }).handler(async () => {
     const { getInvalidExcerptsResponse } = await import('@/lib/app-services');
@@ -199,6 +400,13 @@ export const savePromptSelection = createServerFn({ method: 'POST' })
         return setPromptStateResponse(data.promptId, data.content);
     });
 
+export const saveActiveCompilationSelectionData = createServerFn({ method: 'POST' })
+    .inputValidator(validateActiveCompilationInput)
+    .handler(async ({ data }): Promise<CompilationSelectionState> => {
+        const { setActiveCompilationSelectionResponse } = await import('@/lib/app-services');
+        return setActiveCompilationSelectionResponse(data.fileName);
+    });
+
 export const fetchTranslationFileData = createServerFn({ method: 'GET' })
     .inputValidator(validateTranslationFileInput)
     .handler(async ({ data }): Promise<TranslationFileResponse> => {
@@ -213,11 +421,25 @@ export const commitTranslationPatch = createServerFn({ method: 'POST' })
         return writeTranslationPatch(data.relativePath, data.excerptId, data.patch, data.patchMetadata);
     });
 
+export const commitTranslationPatches = createServerFn({ method: 'POST' })
+    .inputValidator(validatePatchBatchInput)
+    .handler(async ({ data }): Promise<TranslationFileResponse> => {
+        const { writeTranslationPatchesResponse } = await import('@/lib/app-services');
+        return writeTranslationPatchesResponse(data.relativePath, data.operations);
+    });
+
 export const setTranslationSkip = createServerFn({ method: 'POST' })
     .inputValidator(validateSkipInput)
     .handler(async ({ data }): Promise<TranslationFileResponse> => {
         const { setTranslationSkipResponse } = await import('@/lib/app-services');
         return setTranslationSkipResponse(data.relativePath, data.excerptId, data.skipped);
+    });
+
+export const setTranslationSkips = createServerFn({ method: 'POST' })
+    .inputValidator(validateSkipBatchInput)
+    .handler(async ({ data }): Promise<TranslationFileResponse> => {
+        const { setTranslationSkipsResponse } = await import('@/lib/app-services');
+        return setTranslationSkipsResponse(data.relativePath, data.operations);
     });
 
 export const deleteTranslationFile = createServerFn({ method: 'POST' })
@@ -239,4 +461,11 @@ export const requestArabicLeakCorrections = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         const { requestTranslationAssistResponse } = await import('@/lib/app-services');
         return requestTranslationAssistResponse(data);
+    });
+
+export const updateShiftCheckpointPosition = createServerFn({ method: 'POST' })
+    .inputValidator(validateShiftSettingsInput)
+    .handler(async ({ data }): Promise<ShiftSettingsResponse> => {
+        const { setShiftCheckpointPositionResponse } = await import('@/lib/app-services');
+        return setShiftCheckpointPositionResponse(data.shiftedCount);
     });

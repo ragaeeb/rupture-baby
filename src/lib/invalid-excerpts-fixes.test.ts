@@ -77,24 +77,27 @@ describe('commitInvalidPendingEdits', () => {
             throw new Error('Expected patches to be created');
         }
 
-        const committedExcerptIds: string[] = [];
+        const committedOperationsByFile = new Map<string, string[]>();
         let invalidateCalls = 0;
 
         const committedRowKeys = await commitInvalidPendingEdits({
-            commitPatch: async (pendingEdit) => {
-                committedExcerptIds.push(pendingEdit.excerptId);
+            commitFilePatches: async (filePath, operations) => {
+                committedOperationsByFile.set(
+                    filePath,
+                    operations.map((operation) => operation.excerptId),
+                );
             },
             invalidate: async () => {
                 invalidateCalls += 1;
             },
             pendingEdits: {
                 'a.json::P1': { excerptId: 'P1', filePath: 'a.json', nextTranslation: 'good one', patch: firstPatch },
-                'b.json::P2': { excerptId: 'P2', filePath: 'b.json', nextTranslation: 'good two', patch: secondPatch },
+                'a.json::P2': { excerptId: 'P2', filePath: 'a.json', nextTranslation: 'good two', patch: secondPatch },
             },
         });
 
-        expect(committedExcerptIds).toEqual(['P1', 'P2']);
+        expect(committedOperationsByFile).toEqual(new Map([['a.json', ['P1', 'P2']]]));
         expect(invalidateCalls).toBe(1);
-        expect(committedRowKeys).toEqual(['a.json::P1', 'b.json::P2']);
+        expect(committedRowKeys).toEqual(['a.json::P1', 'a.json::P2']);
     });
 });

@@ -8,12 +8,12 @@ const state = {
         filePath: '/tmp/a.json',
         mtimeMs: 1,
         prompt: 'prompt',
+        queue: [{ id: '1', nass: 'a' }],
         shiftedCount: 0,
         shiftedIds: [] as string[],
-        queue: [{ id: '1', nass: 'a' }],
     }),
-    savedShiftedIds: [] as string[],
     savedShiftedCount: -1,
+    savedShiftedIds: [] as string[],
     shiftedCount: -1,
 };
 
@@ -41,9 +41,9 @@ describe('GET /api/compilation/excerpts/shift', () => {
             filePath: '/tmp/a.json',
             mtimeMs: 1,
             prompt: 'prompt',
+            queue: [{ id: '1', nass: 'a' }],
             shiftedCount: 0,
             shiftedIds: [] as string[],
-            queue: [{ id: '1', nass: 'a' }],
         });
         state.buildShiftPayload = () => ({ payload: 'payload-text', shiftCount: 1, usedTokens: 7 });
         state.savedShiftedIds = [];
@@ -65,7 +65,7 @@ describe('GET /api/compilation/excerpts/shift', () => {
 
     it('should return 400 when compilation path is missing', async () => {
         state.getShiftCache = async () => {
-            throw new MissingPathConfigError('compilationFilePath');
+            throw new MissingPathConfigError('activeCompilation');
         };
 
         const response = await GET(
@@ -74,7 +74,7 @@ describe('GET /api/compilation/excerpts/shift', () => {
         const json = (await response.json()) as { error: string; key: string };
 
         expect(response.status).toBe(400);
-        expect(json.key).toBe('compilationFilePath');
+        expect(json.key).toBe('activeCompilation');
     });
 
     it('should use headings and footnotes after excerpts are exhausted', async () => {
@@ -82,13 +82,13 @@ describe('GET /api/compilation/excerpts/shift', () => {
             filePath: '/tmp/a.json',
             mtimeMs: 1,
             prompt: 'prompt',
-            shiftedCount: 0,
-            shiftedIds: [] as string[],
             queue: [
                 { id: 'H1', nass: 'heading one' },
                 { id: 'H2', nass: 'heading two' },
                 { id: 'F1', nass: 'footnote one' },
             ],
+            shiftedCount: 0,
+            shiftedIds: [] as string[],
         });
         state.buildShiftPayload = () => ({ payload: 'fallback-payload', shiftCount: 3, usedTokens: 13 });
         state.savedShiftedIds = [];
@@ -112,12 +112,12 @@ describe('GET /api/compilation/excerpts/shift', () => {
             filePath: '/tmp/a.json',
             mtimeMs: 1,
             prompt: 'prompt',
-            shiftedCount: 10,
-            shiftedIds: [] as string[],
             queue: [
                 { id: 'P1', nass: 'excerpt one' },
                 { id: 'P2', nass: 'excerpt two' },
             ],
+            shiftedCount: 10,
+            shiftedIds: [] as string[],
         };
         state.getShiftCache = async () => shiftCache;
         state.buildShiftPayload = () => ({ payload: 'payload-text', shiftCount: 1, usedTokens: 7 });

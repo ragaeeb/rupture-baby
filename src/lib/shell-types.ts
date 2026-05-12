@@ -1,4 +1,6 @@
 import type { AssistProviderId } from '@/lib/assist-provider-ids';
+import type { CompilationCollectionKey } from '@/lib/compilation-browser-shared';
+import type { CompilationExportProviderId } from '@/lib/compilation-export-shared';
 import type { ThinkingTimeRange } from '@/lib/reasoning-time';
 import type { RuptureHighlight, RupturePatchMetadata } from '@/lib/translation-patches';
 import type { Range } from '@/lib/validation/types';
@@ -24,6 +26,16 @@ export type TranslationFileResponse = {
     sizeBytes: number;
 };
 
+export type CompilationFileOption = { fileName: string; filePath: string; modifiedAt: string; sizeBytes: number };
+
+export type CompilationSelectionState = {
+    activeFileName: string | null;
+    activeFilePath: string | null;
+    folderPath: string | null;
+    options: CompilationFileOption[];
+    selectionPath: string | null;
+};
+
 export type DashboardStatsResponse = {
     checkedAt: string;
     compilationStats?: {
@@ -37,10 +49,14 @@ export type DashboardStatsResponse = {
         uniqueTranslators: number;
         workDurationMs: number | null;
     } | null;
+    compilationSelection: CompilationSelectionState;
     health: {
-        compilationFilePath: string | null;
-        compilationFileConfigured: boolean;
-        compilationFileExists: boolean;
+        activeCompilationConfigured: boolean;
+        activeCompilationExists: boolean;
+        activeCompilationFilePath: string | null;
+        compilationFolderConfigured: boolean;
+        compilationFolderExists: boolean;
+        compilationFolderPath: string | null;
         ok: boolean;
         translationsDirectoryPath: string | null;
         translationsDirectoryConfigured: boolean;
@@ -167,6 +183,90 @@ export type DashboardPageData = { stats: DashboardStatsResponse | null; statsErr
 
 export type AnalyticsPageData = { analytics: CompilationAnalyticsResponse | null; error: string | null };
 
+export type CompilationBrowseRow = {
+    collection: CompilationCollectionKey;
+    from: number | null;
+    id: string;
+    index: number;
+    isTranslated: boolean;
+    lastUpdatedAt: number | null;
+    nass: string;
+    num: string | null;
+    parent: string | null;
+    text: string | null;
+    to: number | null;
+    translator: number | null;
+};
+
+export type CompilationBrowseResponse = {
+    collection: CompilationCollectionKey;
+    pagination: {
+        hasNextPage: boolean;
+        hasPreviousPage: boolean;
+        page: number;
+        pageSize: number;
+        totalItems: number;
+        totalPages: number;
+    };
+    rows: CompilationBrowseRow[];
+    summary: { total: number; translated: number; untranslated: number };
+};
+
+export type CompilationBrowsePageData = { browse: CompilationBrowseResponse | null; error: string | null };
+
+export type CompilationExportChunkSummary = {
+    chunkIndex: number;
+    downloadUrl: string;
+    estimatedTokens: number;
+    excerptCount: number;
+    filename: string;
+    firstId: string | null;
+    headingCount: number;
+    itemCount: number;
+    lastId: string | null;
+};
+
+export type CompilationExportPlan = {
+    availableChunkTokens: number;
+    chunkCount: number;
+    chunks: CompilationExportChunkSummary[];
+    compilationFilePath: string;
+    contextWindowTokens: number;
+    excerptCount: number;
+    headingCount: number;
+    manifestDownloadUrl: string;
+    manifestFilename: string;
+    prompt: string;
+    promptDownloadUrl: string;
+    promptFilename: string;
+    promptId: string;
+    promptTokens: number;
+    provider: CompilationExportProviderId;
+    reservedTokens: number;
+    totalItemCount: number;
+    zipDownloadUrl: string;
+    zipFilename: string;
+};
+
+export type CompilationExportPageData = { error: string | null; plan: CompilationExportPlan | null };
+
+export type ShiftSettingsResponse = {
+    checkpointPath: string;
+    checkpointSourceMtimeMs: number | null;
+    checkpointValid: boolean;
+    compilationFilePath: string;
+    compilationMtimeMs: number;
+    hasCheckpoint: boolean;
+    lastShiftedId: string | null;
+    nextId: string | null;
+    remainingCount: number;
+    shiftedCount: number;
+    shiftedIdCount: number;
+    totalCount: number;
+};
+
+export type ShiftSettingsPageData = { error: string | null; settings: ShiftSettingsResponse | null };
+
 export type PromptsPageData = {
     error: string | null;
     meta: AppMetaResponse | null;
@@ -174,6 +274,7 @@ export type PromptsPageData = {
 };
 
 export type SettingsPageData = {
+    compilationSelection: CompilationSelectionState | null;
     error: string | null;
     meta: AppMetaResponse | null;
     settings: AppSettingsResponse | null;

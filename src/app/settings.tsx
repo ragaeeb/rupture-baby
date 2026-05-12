@@ -1,8 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { ChevronDown, Settings2 } from 'lucide-react';
 import type { ChangeEvent } from 'react';
 import { useEffect, useState } from 'react';
 
+import { ActiveCompilationPanel } from '@/components/active-compilation-panel';
 import { AppFooter } from '@/components/app-footer';
 import { AppSidebar } from '@/components/app-sidebar';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
@@ -11,7 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { getStoredAssistProvider, setStoredAssistProvider } from '@/lib/assist-provider-storage';
 import { getErrorMessage } from '@/lib/error-utils';
-import { fetchSettingsPageData } from '@/lib/server-functions';
+import { fetchSettingsPageData, saveActiveCompilationSelectionData } from '@/lib/server-functions';
 import type { AssistProviderId } from '@/lib/shell-types';
 
 export const Route = createFileRoute('/settings')({
@@ -20,6 +21,7 @@ export const Route = createFileRoute('/settings')({
 });
 
 function SettingsPage() {
+    const router = useRouter();
     const loaderData = Route.useLoaderData();
     const [selectedProviderId, setSelectedProviderId] = useState<AssistProviderId | ''>(
         loaderData.settings?.selectedAssistProvider ?? '',
@@ -74,6 +76,16 @@ function SettingsPage() {
                 </header>
 
                 <div className="flex flex-1 flex-col gap-4 p-4">
+                    <ActiveCompilationPanel
+                        data={loaderData.compilationSelection}
+                        description="This is the server-side active compilation shared by the dashboard, prompt editor, compilation APIs, playback, and shift workflows."
+                        onSave={async (fileName) => {
+                            await saveActiveCompilationSelectionData({ data: { fileName } });
+                            await router.invalidate({ sync: true });
+                        }}
+                        title="Active Compilation"
+                    />
+
                     <div className="rounded-xl border bg-card p-4">
                         <div className="flex items-start gap-3">
                             <div className="rounded-md bg-muted p-2">

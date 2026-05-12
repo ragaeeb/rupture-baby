@@ -9,8 +9,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { readdir, rm, writeFile } from 'node:fs/promises';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -49,13 +48,6 @@ const isGrokMassExport = (data: unknown): data is GrokMassExport => {
         }
     }
     return true;
-};
-
-type SplitResult = {
-    conversations?: Array<{ id: string; outputPath: string; title: string }>;
-    originalFile: string;
-    reason?: string;
-    split: boolean;
 };
 
 const findCandidateFiles = async (dir: string): Promise<string[]> => {
@@ -153,11 +145,47 @@ const splitZipArchive = async (archivePath: string, dryRun: boolean) => {
 
         return conversations.length > 0
             ? { conversations, originalFile: archivePath, split: true }
-            : { originalFile: archivePath, reason: 'prod-grok-backend.json was not a multi-conversation file', split: false };
+            : {
+                  originalFile: archivePath,
+                  reason: 'prod-grok-backend.json was not a multi-conversation file',
+                  split: false,
+              };
     } finally {
         await rm(tempDir, { force: true, recursive: true });
     }
 };
+
+const logConversationOutputs = (conversations: Array<{ id: string; title: string }>) => {
+    for (const conv of conversations) {
+        console.log(`    → ${conv.id}.json (${conv.title.slice(0, 50)}...)`);
+    }
+};
+
+const reportSplitResult = ({
+    file,
+    result,
+    writeMode,
+}: {
+    file: string;
+    result: Awaited<ReturnType<typeof splitConversations>> | Awaited<ReturnType<typeof splitZipArchive>>;
+    writeMode: boolean;
+}) => {
+    if (!result.split || !result.conversations) {
+        return { newFiles: 0, split: false };
+    }
+
+    if (writeMode) {
+        console.log(`✓ Split: ${path.basename(file)}`);
+    } else {
+        console.log(`Would split: ${path.basename(file)} (${result.conversations.length} conversations)`);
+    }
+
+    logConversationOutputs(result.conversations);
+    return { newFiles: result.conversations.length, split: true };
+};
+
+const splitCandidateFile = async (file: string, dryRun: boolean) =>
+    file.endsWith('.zip') ? splitZipArchive(file, dryRun) : splitConversations(file, dryRun);
 
 const run = async () => {
     const args = process.argv.slice(2);
@@ -174,23 +202,12 @@ const run = async () => {
 
     for (const file of candidateFiles) {
         try {
-            const result = file.endsWith('.zip') ? await splitZipArchive(file, !writeMode) : await splitConversations(file, !writeMode);
+            const result = await splitCandidateFile(file, !writeMode);
+            const report = reportSplitResult({ file, result, writeMode });
 
-            if (result.split && result.conversations) {
+            if (report.split) {
                 splitCount += 1;
-                totalNewFiles += result.conversations.length;
-
-                if (writeMode) {
-                    console.log(`✓ Split: ${path.basename(file)}`);
-                    for (const conv of result.conversations) {
-                        console.log(`    → ${conv.id}.json (${conv.title.slice(0, 50)}...)`);
-                    }
-                } else {
-                    console.log(`Would split: ${path.basename(file)} (${result.conversations.length} conversations)`);
-                    for (const conv of result.conversations) {
-                        console.log(`    → ${conv.id}.json (${conv.title.slice(0, 50)}...)`);
-                    }
-                }
+                totalNewFiles += report.newFiles;
             }
         } catch (error) {
             console.error(`Error processing ${file}:`, error instanceof Error ? error.message : String(error));

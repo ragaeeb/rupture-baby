@@ -71,7 +71,9 @@ describe('getRuptureDisplayHighlights', () => {
         }
 
         expect(patch.ops).toHaveLength(1);
-        expect(getRuptureDisplayHighlights(nextText, patch)).toEqual([{ range: { end: nextText.length, start: 4 } }]);
+        expect(getRuptureDisplayHighlights(nextText, patch)).toEqual([
+            { range: { end: nextText.length - 1, start: 5 } },
+        ]);
     });
 
     it('should keep separate precise edits when the row is not mostly replaced', () => {

@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
+
+mock.module('bitaboom', () => ({
+    estimateTokenCount: (text: string) => Math.ceil(text.length / 4),
+}));
+
 import { groupIdsByTokenLimits, TOKEN_LIMIT_GROUPS } from './grouping';
 
 describe('groupIdsByTokenLimits', () => {

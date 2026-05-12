@@ -1,13 +1,16 @@
-import { createReadStream, renameSync, rmSync, statSync } from 'node:fs';
+import '@tanstack/react-start/server-only';
+
+import { renameSync, rmSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join, parse } from 'node:path';
-import { Readable } from 'node:stream';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { parser } from 'stream-json';
-import pick from 'stream-json/filters/pick.js';
-import streamValues from 'stream-json/streamers/stream-values.js';
-import { requireCompilationFilePath } from '@/lib/data-paths';
+
+import {
+    getCompilationSnapshot,
+    getCompilationSnapshotPath,
+    invalidateCompilationSnapshot,
+} from '@/lib/compilation-cache';
 import { readJsonFile, readTextFile, writeTextFile } from '@/lib/runtime-files';
+import { nowInSeconds } from '@/lib/time';
 import type { Compilation } from '@/types/compilation';
 
 const PROMPTS_DIR = 'prompts';
@@ -15,46 +18,19 @@ const PROMPTS_DIR = 'prompts';
 export type PromptOption = { id: string; name: string; content: string; isMaster?: boolean };
 
 type PromptSelection = { content: string; id: string; name: string };
-type CompilationPromptState = {
-    filePath: string;
-    mtimeMs: number;
-    promptForTranslation: string;
-    promptId: string | null;
-};
 
-let compilationPromptStateCache: CompilationPromptState | null = null;
-let compilationPromptStatePromise: Promise<CompilationPromptState> | null = null;
 let promptOptionsPromise: Promise<PromptOption[]> | null = null;
 let promptWriteQueue = Promise.resolve();
 
-const mapFileNameToDisplayName = (filename: string) => {
-    // encyclopedia_mixed.md -> Encyclopedia Mixed
-    return filename
+const mapFileNameToDisplayName = (filename: string) =>
+    filename
         .split('_')
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ');
-};
 
-const mapFileNametoId = (filename: string) => {
-    // encyclopedia_mixed.md -> ENCYCLOPEDIA_MIXED
-    return filename.toUpperCase().replace(/-/g, '_');
-};
+const mapFileNametoId = (filename: string) => filename.toUpperCase().replace(/-/g, '_');
 
-const stackPrompts = (master: string, addon: string) => {
-    return `${master.trim()}\n${addon.trim()}`;
-};
-
-const getBunFileStream = (filePath: string): Readable | null => {
-    const bunRuntime = (
-        globalThis as unknown as { Bun?: { file: (target: string) => { stream: () => ReadableStream<Uint8Array> } } }
-    ).Bun;
-
-    if (!process.versions.bun || !bunRuntime?.file) {
-        return null;
-    }
-
-    return Readable.fromWeb(bunRuntime.file(filePath).stream() as unknown as NodeReadableStream);
-};
+const stackPrompts = (master: string, addon: string) => `${master.trim()}\n${addon.trim()}`;
 
 const getBunRuntime = () =>
     (
@@ -62,30 +38,6 @@ const getBunRuntime = () =>
             Bun?: { Glob: new (pattern: string) => { scan: (options: { cwd: string }) => AsyncIterable<string> } };
         }
     ).Bun ?? null;
-
-const getInputStream = (filePath: string): Readable => {
-    const bunStream = getBunFileStream(filePath);
-    if (bunStream) {
-        return bunStream;
-    }
-
-    return createReadStream(filePath);
-};
-
-const loadTopLevelString = async (filePath: string, key: 'promptForTranslation' | 'promptId'): Promise<string> => {
-    const valueStream = getInputStream(filePath)
-        .pipe(parser.asStream())
-        .pipe(pick.asStream({ filter: key }))
-        .pipe(streamValues.asStream());
-
-    for await (const entry of valueStream as AsyncIterable<{ key: number; value: unknown }>) {
-        if (typeof entry.value === 'string') {
-            return entry.value;
-        }
-    }
-
-    return '';
-};
 
 const loadPrompts = async () => {
     const files: string[] = [];
@@ -104,21 +56,20 @@ const loadPrompts = async () => {
         }
     }
 
-    const result: PromptOption[] = [];
+    const sortedFiles = [...files].sort((left, right) => left.localeCompare(right));
+    return Promise.all(
+        sortedFiles.map(async (fileName) => {
+            const { name } = parse(fileName);
+            const content = await readTextFile(join(PROMPTS_DIR, fileName));
 
-    for (const f of files) {
-        const { name } = parse(f);
-        const content = await readTextFile(join(PROMPTS_DIR, f));
-
-        result.push({
-            content,
-            id: mapFileNametoId(name),
-            ...(name === 'master' && { isMaster: true }),
-            name: mapFileNameToDisplayName(name),
-        });
-    }
-
-    return result;
+            return {
+                content,
+                id: mapFileNametoId(name),
+                ...(name === 'master' && { isMaster: true }),
+                name: mapFileNameToDisplayName(name),
+            } satisfies PromptOption;
+        }),
+    );
 };
 
 const getPromptDefinitions = async (): Promise<PromptOption[]> => {
@@ -149,52 +100,23 @@ const getPromptOptionByContent = async (content: string): Promise<PromptSelectio
     return selected ?? null;
 };
 
-const loadCompilationPromptState = async (filePath: string, mtimeMs: number): Promise<CompilationPromptState> => {
-    const [promptForTranslation, promptId] = await Promise.all([
-        loadTopLevelString(filePath, 'promptForTranslation'),
-        loadTopLevelString(filePath, 'promptId'),
-    ]);
+const resolvePromptSelection = async ({
+    promptForTranslation,
+    promptId,
+}: {
+    promptForTranslation: string;
+    promptId: string | null;
+}): Promise<PromptSelection> => {
+    const resolvedContent = promptForTranslation.trim();
 
-    return { filePath, mtimeMs, promptForTranslation, promptId: promptId.trim() || null };
-};
-
-const getCompilationPromptState = async (): Promise<CompilationPromptState> => {
-    const filePath = requireCompilationFilePath();
-    const mtimeMs = statSync(filePath).mtimeMs;
-
-    if (
-        compilationPromptStateCache &&
-        compilationPromptStateCache.filePath === filePath &&
-        compilationPromptStateCache.mtimeMs === mtimeMs
-    ) {
-        return compilationPromptStateCache;
-    }
-
-    if (!compilationPromptStatePromise) {
-        compilationPromptStatePromise = loadCompilationPromptState(filePath, mtimeMs)
-            .then((state) => {
-                compilationPromptStateCache = state;
-                return state;
-            })
-            .finally(() => {
-                compilationPromptStatePromise = null;
-            });
-    }
-
-    return compilationPromptStatePromise;
-};
-
-const resolvePromptSelection = async (state: CompilationPromptState): Promise<PromptSelection> => {
-    const resolvedContent = state.promptForTranslation.trim();
-
-    if (state.promptId) {
-        const selectedById = await getPromptOptionById(state.promptId);
+    if (promptId) {
+        const selectedById = await getPromptOptionById(promptId);
         if (selectedById) {
             return { ...selectedById, content: resolvedContent || selectedById.content };
         }
     }
 
-    const selectedByContent = await getPromptOptionByContent(state.promptForTranslation);
+    const selectedByContent = await getPromptOptionByContent(promptForTranslation);
     if (selectedByContent) {
         return { ...selectedByContent, content: resolvedContent || selectedByContent.content };
     }
@@ -204,25 +126,21 @@ const resolvePromptSelection = async (state: CompilationPromptState): Promise<Pr
 };
 
 const writeCompilationPromptSelection = async (selectedPrompt: PromptSelection): Promise<void> => {
-    const filePath = requireCompilationFilePath();
-    const compilation = await readJsonFile<Compilation>(filePath);
+    const snapshot = await getCompilationSnapshot();
+    const compilation = await readJsonFile<Compilation>(snapshot.filePath);
 
-    compilation.lastUpdatedAt = Date.now();
+    compilation.lastUpdatedAt = nowInSeconds();
     compilation.promptForTranslation = selectedPrompt.content;
     compilation.promptId = selectedPrompt.id;
 
-    const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    const tempPath = `${snapshot.filePath}.${process.pid}.${Date.now()}.tmp`;
+    const snapshotPath = getCompilationSnapshotPath(snapshot.filePath);
 
     try {
         await writeTextFile(tempPath, `${JSON.stringify(compilation)}\n`);
-        renameSync(tempPath, filePath);
-        const mtimeMs = statSync(filePath).mtimeMs;
-        compilationPromptStateCache = {
-            filePath,
-            mtimeMs,
-            promptForTranslation: selectedPrompt.content,
-            promptId: selectedPrompt.id,
-        };
+        renameSync(tempPath, snapshot.filePath);
+        rmSync(snapshotPath, { force: true });
+        invalidateCompilationSnapshot(snapshot.filePath);
     } catch (error) {
         rmSync(tempPath, { force: true });
         throw error;
@@ -241,8 +159,8 @@ export const getPromptOptions = async (): Promise<PromptSelection[]> => {
 };
 
 export const getSelectedPrompt = async (): Promise<PromptSelection> => {
-    const state = await getCompilationPromptState();
-    return await resolvePromptSelection(state);
+    const snapshot = await getCompilationSnapshot();
+    return resolvePromptSelection({ promptForTranslation: snapshot.promptForTranslation, promptId: snapshot.promptId });
 };
 
 export const getSelectedPromptId = async (): Promise<string> => {

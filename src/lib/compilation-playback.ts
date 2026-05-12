@@ -155,7 +155,7 @@ export const finalizeSavedCompilation = (compilation: Compilation, savedAt: numb
 });
 
 export const simulateCompilationPlayback = async (): Promise<CompilationPlaybackSimulationResult> => {
-    const compilationFilePath = requireCompilationFilePath();
+    const compilationFilePath = await requireCompilationFilePath();
     const translationsDirectory = requireTranslationsDir();
     const filePaths = await collectTranslationFilePaths(translationsDirectory, '');
     const compilation = await readJsonFile<Compilation>(compilationFilePath);

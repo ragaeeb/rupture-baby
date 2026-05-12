@@ -165,12 +165,12 @@ describe('getCompilationAnalytics', () => {
     beforeEach(async () => {
         tempDir = await mkdtemp(path.join(os.tmpdir(), 'rupture-compilation-analytics-'));
         compilationFilePath = path.join(tempDir, 'compilation.json');
-        process.env.COMPILATION_FILE_PATH = compilationFilePath;
+        process.env.COMPILATION_FOLDER = tempDir;
         invalidateCompilationAnalyticsCache();
     });
 
     afterEach(async () => {
-        delete process.env.COMPILATION_FILE_PATH;
+        delete process.env.COMPILATION_FOLDER;
         invalidateCompilationAnalyticsCache();
         if (tempDir) {
             await rm(tempDir, { force: true, recursive: true });

@@ -7,6 +7,7 @@ const state = { excerpts: [{ id: '1', nass: 'abc' }], model: { id: 'm1', label: 
 mock.module('bitaboom', () => ({ estimateTokenCount: (text: string) => text.length }));
 
 mock.module('@/lib/translation-models', () => ({ DEFAULT_MODEL_ID: 'm1', getTranslationModelById: () => state.model }));
+mock.module('@/lib/prompt-state', () => ({ getSelectedPrompt: async () => ({ content: 'translate', id: 'p1' }) }));
 
 mock.module('@/lib/untranslated-cache', () => ({ getCachedUntranslatedExcerpts: async () => state.excerpts }));
 
@@ -31,7 +32,7 @@ describe('GET /api/compilation/excerpts/payload', () => {
     it('should return 400 when compilation path is missing', async () => {
         mock.module('@/lib/untranslated-cache', () => ({
             getCachedUntranslatedExcerpts: async () => {
-                throw new MissingPathConfigError('compilationFilePath');
+                throw new MissingPathConfigError('activeCompilation');
             },
         }));
 
@@ -40,6 +41,6 @@ describe('GET /api/compilation/excerpts/payload', () => {
         const json = (await response.json()) as { key: string };
 
         expect(response.status).toBe(400);
-        expect(json.key).toBe('compilationFilePath');
+        expect(json.key).toBe('activeCompilation');
     });
 });

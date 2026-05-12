@@ -1,0 +1,8 @@
+{
+  "format": "common",
+  "llm": "ChatGPT",
+  "model": "gpt-5-4-pro",
+  "prompt": "Please translate the following Arabic excerpts into English. Format each translation using the same ID prefix as the source.\n\nHere are a few format examples to illustrate the expected output style:\n\nP405 - مثال على النص العربي الأول\n\nP1234 - مثال على النص العربي الثاني\n\nP5455 - مثال على النص العربي الثالث\n\nNow translate the actual source excerpts below:\n\nP214846a - النص العربي للمقطع الأول من هذه المجموعة\n\nP214847 - النص العربي للمقطع الثاني من هذه المجموعة\n\nP214848 - النص العربي للمقطع الثالث من هذه المجموعة\n\nP214848a - النص العربي للمقطع الرابع من هذه المجموعة\n\nP214848b - النص العربي للمقطع الخامس من هذه المجموعة\n\nP214849 - النص العربي للمقطع السادس من هذه المجموعة\n\nP214850 - النص العربي للمقطع السابع من هذه المجموعة",
+  "reasoning": [],
+  "response": "P214846a - The first translation from this collection.\n\nP214847 - The second translation from this collection.\n\nP214848 - The third translation from this collection.\n\nP214848a - The fourth translation from this collection.\n\nP214848b - The fifth translation from this collection.\n\nP214849 - The sixth translation from this collection.\n\nP214850 - The seventh translation from this collection."
+}
