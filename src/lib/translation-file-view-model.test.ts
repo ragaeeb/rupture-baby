@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { buildTranslationTableModel, updatePendingEdits } from './translation-file-view-model';
 import { parseTranslationToCommon } from './translation-parser';
 import { createRupturePatch } from './translation-patches';
@@ -120,8 +121,10 @@ describe('buildTranslationTableModel', () => {
     });
 
     it('should not synthesize translated response ids from prompt instruction examples', () => {
-        const filePath =
-            '/Users/rhaq/workspace/compilations/translations/Translation_of_Islamic_Texts_2026-04-09_23-43-27.json';
+        const filePath = path.join(
+            import.meta.dirname,
+            '__fixtures__/translation-with-instruction-examples.json',
+        );
         const conversation = parseTranslationToCommon(JSON.parse(readFileSync(filePath, 'utf8')));
 
         const model = buildTranslationTableModel(conversation, {}, filePath);
@@ -134,8 +137,10 @@ describe('buildTranslationTableModel', () => {
     });
 
     it('should resolve the real source block even when the response invents an extra id', () => {
-        const filePath =
-            '/Users/rhaq/workspace/compilations/translations/Translation_of_Islamic_Texts_2026-04-09_23-43-27.json';
+        const filePath = path.join(
+            import.meta.dirname,
+            '__fixtures__/translation-with-instruction-examples.json',
+        );
         const conversation = parseTranslationToCommon(JSON.parse(readFileSync(filePath, 'utf8')));
 
         const model = buildTranslationTableModel(conversation, {}, filePath);
