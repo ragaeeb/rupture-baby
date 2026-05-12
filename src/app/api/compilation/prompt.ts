@@ -21,18 +21,19 @@ export const GET = async () => {
 export const POST = async (request: Request) => {
     try {
         const body = (await request.json()) as { content?: string; promptId?: string };
-        const content = typeof body.content === 'string' ? body.content : null;
         const promptId = body.promptId?.trim();
 
         if (!promptId) {
             return Response.json({ error: 'promptId is required.' }, { status: 400 });
         }
 
-        if (content === null) {
-            return Response.json({ error: 'content is required.' }, { status: 400 });
+        const hasContent = typeof body.content === 'string';
+
+        if (hasContent) {
+            return Response.json(await setPromptStateResponse(promptId, body.content as string));
         }
 
-        return Response.json(await setPromptStateResponse(promptId, content));
+        return Response.json(await setPromptStateResponse(promptId, null));
     } catch (error) {
         if (error instanceof MissingPathConfigError) {
             return Response.json({ error: error.message, key: error.key }, { status: 400 });

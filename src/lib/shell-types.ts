@@ -1,5 +1,6 @@
 import type { AssistProviderId } from '@/lib/assist-provider-ids';
 import type { CompilationCollectionKey } from '@/lib/compilation-browser-shared';
+import type { CompilationExportProviderId } from '@/lib/compilation-export-shared';
 import type { ThinkingTimeRange } from '@/lib/reasoning-time';
 import type { RuptureHighlight, RupturePatchMetadata } from '@/lib/translation-patches';
 import type { Range } from '@/lib/validation/types';
@@ -25,6 +26,16 @@ export type TranslationFileResponse = {
     sizeBytes: number;
 };
 
+export type CompilationFileOption = { fileName: string; filePath: string; modifiedAt: string; sizeBytes: number };
+
+export type CompilationSelectionState = {
+    activeFileName: string | null;
+    activeFilePath: string | null;
+    folderPath: string | null;
+    options: CompilationFileOption[];
+    selectionPath: string | null;
+};
+
 export type DashboardStatsResponse = {
     checkedAt: string;
     compilationStats?: {
@@ -38,10 +49,14 @@ export type DashboardStatsResponse = {
         uniqueTranslators: number;
         workDurationMs: number | null;
     } | null;
+    compilationSelection: CompilationSelectionState;
     health: {
-        compilationFilePath: string | null;
-        compilationFileConfigured: boolean;
-        compilationFileExists: boolean;
+        activeCompilationConfigured: boolean;
+        activeCompilationExists: boolean;
+        activeCompilationFilePath: string | null;
+        compilationFolderConfigured: boolean;
+        compilationFolderExists: boolean;
+        compilationFolderPath: string | null;
         ok: boolean;
         translationsDirectoryPath: string | null;
         translationsDirectoryConfigured: boolean;
@@ -199,6 +214,42 @@ export type CompilationBrowseResponse = {
 
 export type CompilationBrowsePageData = { browse: CompilationBrowseResponse | null; error: string | null };
 
+export type CompilationExportChunkSummary = {
+    chunkIndex: number;
+    downloadUrl: string;
+    estimatedTokens: number;
+    excerptCount: number;
+    filename: string;
+    firstId: string | null;
+    headingCount: number;
+    itemCount: number;
+    lastId: string | null;
+};
+
+export type CompilationExportPlan = {
+    availableChunkTokens: number;
+    chunkCount: number;
+    chunks: CompilationExportChunkSummary[];
+    compilationFilePath: string;
+    contextWindowTokens: number;
+    excerptCount: number;
+    headingCount: number;
+    manifestDownloadUrl: string;
+    manifestFilename: string;
+    prompt: string;
+    promptDownloadUrl: string;
+    promptFilename: string;
+    promptId: string;
+    promptTokens: number;
+    provider: CompilationExportProviderId;
+    reservedTokens: number;
+    totalItemCount: number;
+    zipDownloadUrl: string;
+    zipFilename: string;
+};
+
+export type CompilationExportPageData = { error: string | null; plan: CompilationExportPlan | null };
+
 export type ShiftSettingsResponse = {
     checkpointPath: string;
     checkpointSourceMtimeMs: number | null;
@@ -223,6 +274,7 @@ export type PromptsPageData = {
 };
 
 export type SettingsPageData = {
+    compilationSelection: CompilationSelectionState | null;
     error: string | null;
     meta: AppMetaResponse | null;
     settings: AppSettingsResponse | null;

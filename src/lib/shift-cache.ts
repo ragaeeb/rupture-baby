@@ -1,12 +1,9 @@
-import { createReadStream, promises as fs } from 'node:fs';
-import path from 'node:path';
-import { Readable } from 'node:stream';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { parser } from 'stream-json';
-import pick from 'stream-json/filters/pick.js';
-import streamArray from 'stream-json/streamers/stream-array.js';
-import streamValues from 'stream-json/streamers/stream-values.js';
+import '@tanstack/react-start/server-only';
 
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+
+import { getCompilationSnapshot, getCompilationSnapshotShiftQueue } from '@/lib/compilation-cache';
 import { requireCompilationFilePath } from '@/lib/data-paths';
 import { fileExists, readJsonFile, writeTextFile } from '@/lib/runtime-files';
 import type { ShiftSettingsResponse } from '@/lib/shell-types';
@@ -26,81 +23,14 @@ type ShiftCheckpointFile = { shiftedCount: number; shiftedIds?: string[]; source
 let shiftCache: ShiftCache | null = null;
 let loadPromise: Promise<ShiftCache> | null = null;
 
-const normalizeMtimeMs = (value: number) => Math.floor(value);
-
 const isMatchingSourceMtime = (checkpointSourceMtimeMs: number | undefined, sourceMtimeMs: number) =>
     typeof checkpointSourceMtimeMs === 'number' &&
     Number.isFinite(checkpointSourceMtimeMs) &&
-    normalizeMtimeMs(checkpointSourceMtimeMs) === normalizeMtimeMs(sourceMtimeMs);
+    Math.abs(checkpointSourceMtimeMs - sourceMtimeMs) < 1;
 
 const getShiftCheckpointPath = (filePath: string) => {
     const parsedPath = path.parse(filePath);
     return path.join(parsedPath.dir, `.${parsedPath.name}.settings.json`);
-};
-
-const getBunFileStream = (filePath: string): Readable | null => {
-    const bunRuntime = (
-        globalThis as unknown as { Bun?: { file: (target: string) => { stream: () => ReadableStream<Uint8Array> } } }
-    ).Bun;
-
-    if (!process.versions.bun || !bunRuntime?.file) {
-        return null;
-    }
-
-    return Readable.fromWeb(bunRuntime.file(filePath).stream() as unknown as NodeReadableStream);
-};
-
-const getInputStream = (filePath: string): Readable => {
-    const bunStream = getBunFileStream(filePath);
-    if (bunStream) {
-        return bunStream;
-    }
-
-    return createReadStream(filePath);
-};
-
-const loadPrompt = async (filePath: string): Promise<string> => {
-    const promptStream = getInputStream(filePath)
-        .pipe(parser.asStream())
-        .pipe(pick.asStream({ filter: 'promptForTranslation' }))
-        .pipe(streamValues.asStream());
-
-    for await (const entry of promptStream as AsyncIterable<{ key: number; value: unknown }>) {
-        if (typeof entry.value === 'string') {
-            return entry.value;
-        }
-    }
-
-    return '';
-};
-
-const loadUntranslatedQueue = async (filePath: string): Promise<ShiftExcerpt[]> => {
-    const loadByKey = async (key: 'excerpts' | 'headings' | 'footnotes') => {
-        const items: ShiftExcerpt[] = [];
-        const excerptStream = getInputStream(filePath)
-            .pipe(parser.asStream())
-            .pipe(pick.asStream({ filter: key }))
-            .pipe(streamArray.asStream());
-
-        for await (const entry of excerptStream as AsyncIterable<{
-            key: number;
-            value: { id: string; nass: string; text?: string | null };
-        }>) {
-            if (entry.value.text === undefined || entry.value.text === null) {
-                items.push({ id: entry.value.id, nass: entry.value.nass });
-            }
-        }
-
-        return items;
-    };
-
-    const [excerpts, headings, footnotes] = await Promise.all([
-        loadByKey('excerpts'),
-        loadByKey('headings'),
-        loadByKey('footnotes'),
-    ]);
-
-    return [...excerpts, ...headings, ...footnotes];
 };
 
 const normalizeShiftedIds = (shiftedIds: unknown) =>
@@ -146,11 +76,11 @@ export const saveShiftCheckpoint = async (
     await writeTextFile(checkpointPath, `${JSON.stringify(checkpoint, null, 2)}\n`);
 };
 
-const loadShiftCache = async (filePath: string, mtimeMs: number): Promise<ShiftCache> => {
-    const [prompt, queue, checkpoint] = await Promise.all([
-        loadPrompt(filePath),
-        loadUntranslatedQueue(filePath),
-        readShiftCheckpoint(filePath, mtimeMs),
+const loadShiftCache = async (): Promise<ShiftCache> => {
+    const snapshot = await getCompilationSnapshot();
+    const [queue, checkpoint] = await Promise.all([
+        getCompilationSnapshotShiftQueue(),
+        readShiftCheckpoint(snapshot.filePath, snapshot.mtimeMs),
     ]);
     const shiftedIds =
         checkpoint.shiftedIds.length > 0
@@ -162,13 +92,20 @@ const loadShiftCache = async (filePath: string, mtimeMs: number): Promise<ShiftC
             ? queue.filter((excerpt) => !shiftedIdSet.has(excerpt.id))
             : queue.slice(checkpoint.shiftedCount);
 
-    return { filePath, mtimeMs, prompt, queue: remainingQueue, shiftedCount: checkpoint.shiftedCount, shiftedIds };
+    return {
+        filePath: snapshot.filePath,
+        mtimeMs: snapshot.mtimeMs,
+        prompt: snapshot.promptForTranslation,
+        queue: remainingQueue,
+        shiftedCount: checkpoint.shiftedCount,
+        shiftedIds,
+    };
 };
 
 export type ShiftSettingsInfo = ShiftSettingsResponse;
 
 export const getShiftSettingsInfo = async (): Promise<ShiftSettingsInfo> => {
-    const compilationFilePath = requireCompilationFilePath();
+    const compilationFilePath = await requireCompilationFilePath();
     const stats = await fs.stat(compilationFilePath);
     const compilationMtimeMs = stats.mtimeMs;
     const checkpointPath = getShiftCheckpointPath(compilationFilePath);
@@ -209,18 +146,17 @@ export const getShiftSettingsInfo = async (): Promise<ShiftSettingsInfo> => {
 };
 
 export const setShiftCheckpointPosition = async (nextShiftedCount: number): Promise<ShiftSettingsInfo> => {
-    const filePath = requireCompilationFilePath();
-    const stats = await fs.stat(filePath);
-    const [fullQueue, prompt] = await Promise.all([loadUntranslatedQueue(filePath), loadPrompt(filePath)]);
+    const snapshot = await getCompilationSnapshot();
+    const fullQueue = await getCompilationSnapshotShiftQueue();
     const safeShiftedCount = Math.min(fullQueue.length, Math.max(0, Math.floor(nextShiftedCount)));
     const shiftedIds = fullQueue.slice(0, safeShiftedCount).map((excerpt) => excerpt.id);
 
-    await saveShiftCheckpoint(filePath, stats.mtimeMs, safeShiftedCount, shiftedIds);
+    await saveShiftCheckpoint(snapshot.filePath, snapshot.mtimeMs, safeShiftedCount, shiftedIds);
 
     shiftCache = {
-        filePath,
-        mtimeMs: stats.mtimeMs,
-        prompt,
+        filePath: snapshot.filePath,
+        mtimeMs: snapshot.mtimeMs,
+        prompt: snapshot.promptForTranslation,
         queue: fullQueue.slice(safeShiftedCount),
         shiftedCount: safeShiftedCount,
         shiftedIds,
@@ -230,15 +166,14 @@ export const setShiftCheckpointPosition = async (nextShiftedCount: number): Prom
 };
 
 export const getShiftCache = async (): Promise<ShiftCache> => {
-    const filePath = requireCompilationFilePath();
-    const stats = await fs.stat(filePath);
+    const snapshot = await getCompilationSnapshot();
 
-    if (shiftCache && shiftCache.filePath === filePath && shiftCache.mtimeMs === stats.mtimeMs) {
+    if (shiftCache && shiftCache.filePath === snapshot.filePath && shiftCache.mtimeMs === snapshot.mtimeMs) {
         return shiftCache;
     }
 
     if (!loadPromise) {
-        loadPromise = loadShiftCache(filePath, stats.mtimeMs)
+        loadPromise = loadShiftCache()
             .then((cache) => {
                 shiftCache = cache;
                 return cache;

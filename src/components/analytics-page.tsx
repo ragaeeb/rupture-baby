@@ -18,6 +18,24 @@ import { formatUnixSecondsToUtcString } from '@/lib/time';
 
 type AnalyticsPageProps = { data: AnalyticsPageData };
 
+const getTranslatedPercent = (analytics: AnalyticsPageData['analytics']) => {
+    if (!analytics) {
+        return '...';
+    }
+
+    return analytics.totalSegments > 0
+        ? ((analytics.translatedSegments / analytics.totalSegments) * 100).toFixed(1)
+        : '0.0';
+};
+
+const getTotalSegmentsHelper = (analytics: AnalyticsPageData['analytics']) => {
+    if (!analytics) {
+        return undefined;
+    }
+
+    return `${analytics.timeline.length.toLocaleString()} active ${analytics.timelineGranularity}${analytics.timeline.length === 1 ? '' : 's'}`;
+};
+
 const formatDurationSeconds = (durationSeconds: number | null | undefined) => {
     if (typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds)) {
         return '...';
@@ -284,12 +302,7 @@ const PatchDistributionCard = ({ analytics }: { analytics: NonNullable<Analytics
 
 const AnalyticsPage = ({ data }: AnalyticsPageProps) => {
     const analytics = data.analytics;
-    const translatedPercent =
-        analytics && analytics.totalSegments > 0
-            ? ((analytics.translatedSegments / analytics.totalSegments) * 100).toFixed(1)
-            : analytics
-              ? '0.0'
-              : '...';
+    const translatedPercent = getTranslatedPercent(analytics);
 
     return (
         <>
@@ -326,11 +339,7 @@ const AnalyticsPage = ({ data }: AnalyticsPageProps) => {
                         value={analytics?.uniqueTranslators.toLocaleString() ?? '...'}
                     />
                     <MetricCard
-                        helper={
-                            analytics
-                                ? `${analytics.timeline.length.toLocaleString()} active ${analytics.timelineGranularity}${analytics.timeline.length === 1 ? '' : 's'}`
-                                : undefined
-                        }
+                        helper={getTotalSegmentsHelper(analytics)}
                         label="Total Segments"
                         value={analytics?.totalSegments.toLocaleString() ?? '...'}
                     />

@@ -8,10 +8,8 @@ import { EditableTranslationContent } from '@/components/translations/editable-t
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { storeArabicLeakCorrections } from '@/lib/arabic-leak-storage';
 import { getStoredAssistProvider } from '@/lib/assist-provider-storage';
-import {
-    storeArabicLeakCorrections,
-} from '@/lib/arabic-leak-storage';
 import {
     applyAllCapsCorrectionsToInvalidRows,
     applyArabicLeakCorrectionsToInvalidRows,
@@ -20,7 +18,7 @@ import {
     type InvalidPendingEditMap,
     updateInvalidPendingEdits,
 } from '@/lib/invalid-excerpts-fixes';
-import { commitTranslationPatch, requestArabicLeakCorrections } from '@/lib/server-functions';
+import { commitTranslationPatch, commitTranslationPatches, requestArabicLeakCorrections } from '@/lib/server-functions';
 import type { InvalidExcerptsResponse } from '@/lib/shell-types';
 import { getCommitButtonLabel } from '@/lib/translation-file-view-model';
 import { getRuptureDisplayHighlights } from '@/lib/translation-patches';
@@ -53,9 +51,7 @@ const getRowKey = (row: InvalidExcerptsResponse['rows'][number]) => `${row.fileP
 
 const isFixableRow = (row: InvalidExcerptsResponse['rows'][number]) =>
     Boolean(
-        row.id &&
-            row.translation &&
-            (row.errorTypes.includes('arabic_leak') || row.errorTypes.includes('all_caps')),
+        row.id && row.translation && (row.errorTypes.includes('arabic_leak') || row.errorTypes.includes('all_caps')),
     );
 
 const isEditableTranslationRow = (
@@ -116,6 +112,82 @@ const getNextSelectedRowKeys = ({
     return [...currentKeys, rowKey];
 };
 
+const getTaskErrorType = (task: 'all_caps_correction' | 'arabic_leak_correction') =>
+    task === 'arabic_leak_correction' ? 'arabic_leak' : 'all_caps';
+
+const getTaskRows = (rows: InvalidExcerptsResponse['rows'], task: 'all_caps_correction' | 'arabic_leak_correction') =>
+    rows.filter((row) => row.errorTypes.includes(getTaskErrorType(task)));
+
+const applyTaskCorrections = ({
+    nextEdits,
+    patchMetadata,
+    corrections,
+    task,
+    taskRows,
+}: {
+    corrections: Awaited<ReturnType<typeof requestArabicLeakCorrections>>['corrections'];
+    nextEdits: InvalidPendingEditMap;
+    patchMetadata: Awaited<ReturnType<typeof requestArabicLeakCorrections>>['patchMetadata'];
+    task: 'all_caps_correction' | 'arabic_leak_correction';
+    taskRows: InvalidExcerptsResponse['rows'];
+}) =>
+    task === 'arabic_leak_correction'
+        ? applyArabicLeakCorrectionsToInvalidRows(taskRows, nextEdits, corrections, patchMetadata)
+        : applyAllCapsCorrectionsToInvalidRows(taskRows, nextEdits, corrections, patchMetadata);
+
+const runBatchFixTasks = async ({
+    pendingEdits,
+    selectedBatchRows,
+}: {
+    pendingEdits: InvalidPendingEditMap;
+    selectedBatchRows: InvalidExcerptsResponse['rows'];
+}) => {
+    let nextEdits = pendingEdits;
+    const issues: string[] = [];
+    let updatedRowCount = 0;
+
+    for (const task of ['arabic_leak_correction', 'all_caps_correction'] as const) {
+        const taskRows = getTaskRows(selectedBatchRows, task);
+        if (taskRows.length === 0) {
+            continue;
+        }
+
+        const response = await requestArabicLeakCorrections({
+            data: {
+                excerpts: taskRows.map((row) => ({
+                    arabic: row.arabic ?? '',
+                    filePath: row.filePath,
+                    id: row.id!,
+                    matchHints: task === 'arabic_leak_correction' ? row.arabicLeakHints : row.allCapsHints,
+                    translation:
+                        nextEdits[getInvalidPendingEditKey(row.filePath, row.id!)]?.nextTranslation ?? row.translation!,
+                })),
+                providerId: getStoredAssistProvider() ?? undefined,
+                scope: 'batch',
+                task,
+            },
+        });
+
+        const result = applyTaskCorrections({
+            corrections: response.corrections,
+            nextEdits,
+            patchMetadata: response.patchMetadata,
+            task,
+            taskRows,
+        });
+
+        nextEdits = result.nextEdits;
+        issues.push(...result.issues);
+        updatedRowCount += result.updatedRowCount;
+
+        if (task === 'arabic_leak_correction' && response.corrections.length > 0) {
+            storeArabicLeakCorrections({ corrections: response.corrections, patchMetadata: response.patchMetadata });
+        }
+    }
+
+    return { issues, nextEdits, updatedRowCount };
+};
+
 const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
     const router = useRouter();
     const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
@@ -130,6 +202,7 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
     const [lastClickedRowKey, setLastClickedRowKey] = useState<string | null>(null);
 
     const resolvedRowKeySet = useMemo(() => new Set(resolvedRowKeys), [resolvedRowKeys]);
+    const selectedRowKeySet = useMemo(() => new Set(selectedRowKeys), [selectedRowKeys]);
 
     const errorTypeOptions = useMemo(
         () => ['all', ...new Set(data.rows.flatMap((row) => row.errorTypes)).values()],
@@ -186,8 +259,8 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
     const orderedFixableRowKeys = useMemo(() => fixableRows.map((row) => getRowKey(row)), [fixableRows]);
 
     const selectedBatchRows = useMemo(
-        () => fixableRows.filter((row) => selectedRowKeys.includes(getRowKey(row))),
-        [fixableRows, selectedRowKeys],
+        () => fixableRows.filter((row) => selectedRowKeySet.has(getRowKey(row))),
+        [fixableRows, selectedRowKeySet],
     );
 
     const allFixableRowsSelected = fixableRows.length > 0 && selectedRowKeys.length === fixableRows.length;
@@ -205,7 +278,8 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
     }, [someFixableRowsSelected]);
 
     useEffect(() => {
-        setSelectedRowKeys((currentKeys) => currentKeys.filter((key) => orderedFixableRowKeys.includes(key)));
+        const orderedFixableRowKeySet = new Set(orderedFixableRowKeys);
+        setSelectedRowKeys((currentKeys) => currentKeys.filter((key) => orderedFixableRowKeySet.has(key)));
     }, [orderedFixableRowKeys]);
 
     const handleDraftChange = (
@@ -248,53 +322,12 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
             return;
         }
 
-            setAssistError(null);
-            setIsFixingErrors(true);
-            setLastFailedSelection(null);
+        setAssistError(null);
+        setIsFixingErrors(true);
+        setLastFailedSelection(null);
 
         try {
-            let nextEdits = pendingEdits;
-            const issues: string[] = [];
-            let updatedRowCount = 0;
-
-            for (const task of ['arabic_leak_correction', 'all_caps_correction'] as const) {
-                let taskRows = selectedBatchRows.filter((row) =>
-                    row.errorTypes.includes(task === 'arabic_leak_correction' ? 'arabic_leak' : 'all_caps'),
-                );
-                if (taskRows.length === 0) {
-                    continue;
-                }
-
-                const response = await requestArabicLeakCorrections({
-                    data: {
-                        excerpts: taskRows.map((row) => ({
-                            arabic: row.arabic ?? '',
-                            filePath: row.filePath,
-                            id: row.id!,
-                            matchHints: task === 'arabic_leak_correction' ? row.arabicLeakHints : row.allCapsHints,
-                            translation:
-                                nextEdits[getInvalidPendingEditKey(row.filePath, row.id!)]?.nextTranslation ??
-                                row.translation!,
-                        })),
-                        providerId: getStoredAssistProvider() ?? undefined,
-                        scope: 'batch',
-                        task,
-                    },
-                });
-
-                const result =
-                    task === 'arabic_leak_correction'
-                        ? applyArabicLeakCorrectionsToInvalidRows(taskRows, nextEdits, response.corrections, response.patchMetadata)
-                        : applyAllCapsCorrectionsToInvalidRows(taskRows, nextEdits, response.corrections, response.patchMetadata);
-
-                nextEdits = result.nextEdits;
-                issues.push(...result.issues);
-                updatedRowCount += result.updatedRowCount;
-
-                if (task === 'arabic_leak_correction' && response.corrections.length > 0) {
-                    storeArabicLeakCorrections({ corrections: response.corrections, patchMetadata: response.patchMetadata });
-                }
-            }
+            const { issues, nextEdits, updatedRowCount } = await runBatchFixTasks({ pendingEdits, selectedBatchRows });
 
             if (updatedRowCount === 0) {
                 setAssistError(issues[0] ?? 'The assistant did not return any usable corrections.');
@@ -321,15 +354,26 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
         setIsCommitting(true);
         try {
             const committedRowKeys = await commitInvalidPendingEdits({
-                commitPatch: (pendingEdit) =>
-                    commitTranslationPatch({
-                        data: {
-                            excerptId: pendingEdit.excerptId,
-                            patch: pendingEdit.patch,
-                            patchMetadata: pendingEdit.metadata,
-                            relativePath: pendingEdit.filePath,
-                        },
-                    }),
+                commitFilePatches: (filePath, operations) =>
+                    operations.length === 1
+                        ? commitTranslationPatch({
+                              data: {
+                                  excerptId: operations[0].excerptId,
+                                  patch: operations[0].patch,
+                                  patchMetadata: operations[0].patchMetadata,
+                                  relativePath: filePath,
+                              },
+                          })
+                        : commitTranslationPatches({
+                              data: {
+                                  operations: operations.map((operation) => ({
+                                      excerptId: operation.excerptId,
+                                      patch: operation.patch,
+                                      patchMetadata: operation.patchMetadata,
+                                  })),
+                                  relativePath: filePath,
+                              },
+                          }),
                 invalidate: () => router.invalidate({ sync: true }),
                 pendingEdits,
             });
@@ -379,11 +423,11 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
                                 {visibleRows.length} invalid excerpt rows shown across {data.invalidFileCount} files.
                             </p>
                             {assistError ? (
-                                <div className="mt-2 space-y-1 text-xs text-destructive">
+                                <div className="mt-2 space-y-1 text-destructive text-xs">
                                     <p>{assistError}</p>
                                     {lastFailedSelection ? (
                                         <button
-                                            className="inline-flex items-center gap-1 rounded-md border border-destructive/30 px-2 py-1.5 text-xs font-medium"
+                                            className="inline-flex items-center gap-1 rounded-md border border-destructive/30 px-2 py-1.5 font-medium text-xs"
                                             onClick={handleRetryFixErrors}
                                             type="button"
                                             disabled={isFixingErrors}
@@ -480,7 +524,7 @@ const InvalidExcerptsPage = ({ data }: InvalidExcerptsPageProps) => {
                                             {isFixableRow(row) ? (
                                                 <input
                                                     aria-label={`Select ${row.id} for fixing`}
-                                                    checked={selectedRowKeys.includes(getRowKey(row))}
+                                                    checked={selectedRowKeySet.has(getRowKey(row))}
                                                     className="size-4 rounded border-input align-top"
                                                     disabled={pendingEditCount > 0}
                                                     onChange={(event) =>

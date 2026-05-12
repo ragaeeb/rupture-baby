@@ -1,11 +1,11 @@
 import '@tanstack/react-start/server-only';
 
+import { buildAllCapsCorrectionPrompt } from '@/lib/llm/all-caps-prompt';
 import {
     buildArabicLeakCorrectionJsonSchema,
     buildArabicLeakCorrectionPrompt,
     parseTextCorrectionResponse,
 } from '@/lib/llm/arabic-leak-prompt';
-import { buildAllCapsCorrectionPrompt } from '@/lib/llm/all-caps-prompt';
 import type { TranslationAssistProvider } from '@/lib/llm/types';
 import type { TranslationAssistRequest, TranslationTextCorrection } from '@/lib/shell-types';
 
@@ -143,7 +143,10 @@ const serializeError = (error: unknown) => {
     };
 };
 
-const requestChunkCorrections = async (request: TranslationAssistRequest, chunk: TranslationAssistRequest['excerpts']) => {
+const requestChunkCorrections = async (
+    request: TranslationAssistRequest,
+    chunk: TranslationAssistRequest['excerpts'],
+) => {
     const excerptById = new Map<string, TranslationAssistRequest['excerpts'][number]>();
 
     for (const excerpt of chunk) {

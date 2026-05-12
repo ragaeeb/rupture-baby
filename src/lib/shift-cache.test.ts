@@ -17,12 +17,12 @@ describe('getShiftCache', () => {
     beforeEach(async () => {
         tempDir = await mkdtemp(path.join(os.tmpdir(), 'rupture-shift-cache-'));
         compilationFilePath = path.join(tempDir, 'compilation.json');
-        process.env.COMPILATION_FILE_PATH = compilationFilePath;
+        process.env.COMPILATION_FOLDER = tempDir;
         __resetShiftCacheForTests();
     });
 
     afterEach(async () => {
-        delete process.env.COMPILATION_FILE_PATH;
+        delete process.env.COMPILATION_FOLDER;
         __resetShiftCacheForTests();
         if (tempDir) {
             await rm(tempDir, { force: true, recursive: true });

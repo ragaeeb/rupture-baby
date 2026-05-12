@@ -4,8 +4,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import type { LLMProvider } from 'bitaboom';
 
 import { MissingPathConfigError } from '@/lib/data-paths';
-import { getShiftCache } from '@/lib/shift-cache';
-import { saveShiftCheckpoint } from '@/lib/shift-cache';
+import { getShiftCache, saveShiftCheckpoint } from '@/lib/shift-cache';
 import { buildShiftPayload, shiftFirstN } from '@/lib/shift-payload';
 
 export const GET = async (request: Request) => {
@@ -26,7 +25,12 @@ export const GET = async (request: Request) => {
         const shiftedIds = shiftedExcerpts.map((excerpt) => excerpt.id);
         shiftCache.shiftedCount += shiftedExcerpts.length;
         shiftCache.shiftedIds = [...new Set([...shiftCache.shiftedIds, ...shiftedIds])];
-        await saveShiftCheckpoint(shiftCache.filePath, shiftCache.mtimeMs, shiftCache.shiftedCount, shiftCache.shiftedIds);
+        await saveShiftCheckpoint(
+            shiftCache.filePath,
+            shiftCache.mtimeMs,
+            shiftCache.shiftedCount,
+            shiftCache.shiftedIds,
+        );
 
         return new Response(result.payload, { headers: { 'content-type': 'text/plain; charset=utf-8' }, status: 200 });
     } catch (error) {

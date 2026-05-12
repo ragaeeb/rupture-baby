@@ -1,6 +1,6 @@
 import { applyAllCapsCorrectionsToText } from './all-caps-corrections';
 import { applyArabicLeakCorrectionsToText } from './arabic-leak-corrections';
-import type { AllCapsCorrection, ArabicLeakCorrection, InvalidExcerptRow } from './shell-types';
+import type { AllCapsCorrection, InvalidExcerptRow } from './shell-types';
 import { createRupturePatch, type RupturePatchMetadata, stripRuptureHighlightMetadata } from './translation-patches';
 
 export type InvalidPendingEdit = {
@@ -51,20 +51,42 @@ export const updateInvalidPendingEdits = (
 };
 
 export const commitInvalidPendingEdits = async ({
-    commitPatch,
+    commitFilePatches,
     invalidate,
     pendingEdits,
 }: {
-    commitPatch: (pendingEdit: InvalidPendingEdit) => Promise<unknown>;
+    commitFilePatches: (
+        filePath: string,
+        operations: Array<{
+            excerptId: string;
+            patch: InvalidPendingEdit['patch'];
+            patchMetadata?: InvalidPendingEdit['metadata'];
+        }>,
+    ) => Promise<unknown>;
     invalidate: () => Promise<void>;
     pendingEdits: InvalidPendingEditMap;
 }) => {
-    const committedRowKeys = Object.values(pendingEdits).map((pendingEdit) =>
+    const pendingEditValues = Object.values(pendingEdits);
+    const committedRowKeys = pendingEditValues.map((pendingEdit) =>
         getInvalidPendingEditKey(pendingEdit.filePath, pendingEdit.excerptId),
     );
+    const operationsByFilePath = new Map<
+        string,
+        Array<{ excerptId: string; patch: InvalidPendingEdit['patch']; patchMetadata?: InvalidPendingEdit['metadata'] }>
+    >();
 
-    for (const pendingEdit of Object.values(pendingEdits)) {
-        await commitPatch(pendingEdit);
+    for (const pendingEdit of pendingEditValues) {
+        const operations = operationsByFilePath.get(pendingEdit.filePath) ?? [];
+        operations.push({
+            excerptId: pendingEdit.excerptId,
+            patch: pendingEdit.patch,
+            patchMetadata: pendingEdit.metadata,
+        });
+        operationsByFilePath.set(pendingEdit.filePath, operations);
+    }
+
+    for (const [filePath, operations] of operationsByFilePath.entries()) {
+        await commitFilePatches(filePath, operations);
     }
 
     await invalidate();

@@ -13,6 +13,7 @@ import {
     DEFAULT_COMPILATION_BROWSE_PAGE_SIZE,
     MAX_COMPILATION_BROWSE_PAGE_SIZE,
 } from '@/lib/compilation-browser-shared';
+import { getCompilationSnapshot } from '@/lib/compilation-cache';
 import { requireCompilationFilePath } from '@/lib/data-paths';
 import type { CompilationBrowseResponse, CompilationBrowseRow } from '@/lib/shell-types';
 import type { Excerpt, Heading } from '@/types/compilation';
@@ -78,43 +79,38 @@ export const getCompilationBrowsePage = async ({
     page?: number;
     pageSize?: number;
 }): Promise<CompilationBrowseResponse> => {
-    const filePath = requireCompilationFilePath();
+    const filePath = await requireCompilationFilePath();
     await fs.stat(filePath);
 
-    const safePage = clampPage(page);
+    const snapshot = await getCompilationSnapshot();
+    const summary = snapshot.browseSummary[collection];
     const safePageSize = clampPageSize(pageSize);
-    const startIndex = (safePage - 1) * safePageSize;
+    const totalItems = summary.total;
+    const totalPages = Math.max(1, Math.ceil(totalItems / safePageSize));
+    const normalizedPage = Math.min(clampPage(page), totalPages);
+    const startIndex = (normalizedPage - 1) * safePageSize;
     const endIndex = startIndex + safePageSize;
     const rows: CompilationBrowseRow[] = [];
-    let totalItems = 0;
-    let translatedCount = 0;
-    let untranslatedCount = 0;
 
-    const excerptStream = getInputStream(filePath)
-        .pipe(parser.asStream())
-        .pipe(pick.asStream({ filter: collection }))
-        .pipe(streamArray.asStream());
+    if (totalItems > 0) {
+        const excerptStream = getInputStream(filePath)
+            .pipe(parser.asStream())
+            .pipe(pick.asStream({ filter: collection }))
+            .pipe(streamArray.asStream());
 
-    for await (const entry of excerptStream as AsyncIterable<{ key: number; value: CollectionEntry }>) {
-        const currentIndex = totalItems;
-        totalItems += 1;
+        for await (const entry of excerptStream as AsyncIterable<{ key: number; value: CollectionEntry }>) {
+            const currentIndex = entry.key;
 
-        if (isTranslated(entry.value)) {
-            translatedCount += 1;
-        } else {
-            untranslatedCount += 1;
-        }
+            if (currentIndex < startIndex) {
+                continue;
+            }
 
-        if (currentIndex >= startIndex && currentIndex < endIndex) {
+            if (currentIndex >= endIndex) {
+                break;
+            }
+
             rows.push(mapEntryToRow(collection, entry.value, currentIndex));
         }
-    }
-
-    const totalPages = Math.max(1, Math.ceil(totalItems / safePageSize));
-    const normalizedPage = Math.min(safePage, totalPages);
-
-    if (normalizedPage !== safePage) {
-        return getCompilationBrowsePage({ collection, page: normalizedPage, pageSize: safePageSize });
     }
 
     return {
@@ -128,6 +124,6 @@ export const getCompilationBrowsePage = async ({
             totalPages,
         },
         rows,
-        summary: { total: totalItems, translated: translatedCount, untranslated: untranslatedCount },
+        summary,
     };
 };

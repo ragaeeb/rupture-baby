@@ -152,10 +152,11 @@ export const buildPatchedConversation = (
     }
 
     const baseTranslatedSegments = parseTranslationsInOrder(conversation.response);
+    const baseTranslatedById = new Map(baseTranslatedSegments.map((segment) => [segment.id, segment.text] as const));
     const arabicSegments = getConversationSourceSegments(conversation, baseTranslatedSegments);
     const patchTargetSegments = arabicSegments.map((segment) => ({
         id: segment.id,
-        text: baseTranslatedSegments.find((translated) => translated.id === segment.id)?.text ?? '',
+        text: baseTranslatedById.get(segment.id) ?? '',
     }));
     const patches = mergeRupturePatches(conversation.__rupture?.patches, patchTargetSegments, pendingEdits);
     if (!patches) {
@@ -219,25 +220,11 @@ export const buildTranslationTableModel = (
     const validation = validateConversationExcerpts({ ...conversation, response: patchedResponse });
     const { excerpts, validationErrors } = validation;
     const translatedById = new Map(translatedSegments.map((segment) => [segment.id, segment.text] as const));
-    const skippedExcerptIds = new Set(
-        Array.isArray(conversation.__rupture?.skip)
-            ? conversation.__rupture.skip.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-            : [],
-    );
+    const skippedExcerptIds = new Set(getSkippedExcerptIds(conversation));
     const visibleValidationErrors = validationErrors.filter((error) => !error.id || !skippedExcerptIds.has(error.id));
-    const errorsById = new Map<string, ValidationError[]>();
+    const errorsById = groupValidationErrorsById(visibleValidationErrors);
     const patchesById = mergedPatches ?? {};
     const patchMetadataById = mergeRupturePatchMetadata(conversation.__rupture?.patchMetadata, pendingEdits);
-
-    for (const error of visibleValidationErrors) {
-        if (!error.id) {
-            continue;
-        }
-
-        const existing = errorsById.get(error.id) ?? [];
-        existing.push(error);
-        errorsById.set(error.id, existing);
-    }
 
     const rows = arabicSegments.map((segment, index): TranslationRowData => {
         const excerpt = excerpts[index];
@@ -261,46 +248,82 @@ export const buildTranslationTableModel = (
         };
     });
 
-    return {
-        allCapsExcerpts: rows
-            .filter((row) => errorsById.get(row.id)?.some((error) => error.type === 'all_caps'))
-            .map((row) => ({
+    const allCapsExcerpts: AllCapsCorrectionExcerpt[] = [];
+    const arabicLeakExcerpts: ArabicLeakCorrectionExcerpt[] = [];
+    let patchedRowCount = 0;
+
+    for (const row of rows) {
+        const rowErrors = errorsById.get(row.id) ?? [];
+        if (row.hasPatch) {
+            patchedRowCount += 1;
+        }
+
+        if (rowErrors.some((error) => error.type === 'all_caps')) {
+            allCapsExcerpts.push({
                 arabic: row.arabic,
                 filePath: filePath ?? '',
                 id: row.id,
                 matchHints: [
                     ...new Set(
-                        (errorsById.get(row.id) ?? [])
+                        rowErrors
                             .filter((error) => error.type === 'all_caps' && error.matchText.trim().length > 0)
                             .map((error) => error.matchText.trim()),
                     ),
                 ],
                 translation: row.translatedText,
-            })),
-        arabicLeakExcerpts: rows
-            .filter((row) => errorsById.get(row.id)?.some((error) => error.type === 'arabic_leak'))
-            .map((row) => ({
+            });
+        }
+
+        if (rowErrors.some((error) => error.type === 'arabic_leak')) {
+            arabicLeakExcerpts.push({
                 arabic: row.arabic,
                 filePath: filePath ?? '',
                 id: row.id,
                 matchHints: [
                     ...new Set(
-                        (errorsById.get(row.id) ?? [])
+                        rowErrors
                             .filter((error) => error.type === 'arabic_leak' && error.matchText.trim().length > 0)
                             .map((error) => error.matchText.trim()),
                     ),
                 ],
                 translation: row.translatedText,
-            })),
+            });
+        }
+    }
+
+    return {
+        allCapsExcerpts,
+        arabicLeakExcerpts,
         hasAlignmentErrors: visibleValidationErrors.some((error) => ALIGNMENT_ERROR_TYPES.has(error.type)),
         hasPatches: rows.some((row) => row.hasPatch),
         isSourceAlignedToResponse: sourceResolution.alignedToResponse,
         isValid: visibleValidationErrors.length === 0,
-        patchedRowCount: rows.filter((row) => row.hasPatch).length,
+        patchedRowCount,
         responseIds: translatedSegments.map((segment) => segment.id),
         rows,
         sourceIds: arabicSegments.map((segment) => segment.id),
     };
+};
+
+const getSkippedExcerptIds = (conversation: CommonConversationExport) =>
+    Array.isArray(conversation.__rupture?.skip)
+        ? conversation.__rupture.skip.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        : [];
+
+const groupValidationErrorsById = (errors: ValidationError[]) => {
+    const errorsById = new Map<string, ValidationError[]>();
+
+    for (const error of errors) {
+        if (!error.id) {
+            continue;
+        }
+
+        const existing = errorsById.get(error.id) ?? [];
+        existing.push(error);
+        errorsById.set(error.id, existing);
+    }
+
+    return errorsById;
 };
 
 export const applyArabicLeakCorrectionsToPendingEdits = (

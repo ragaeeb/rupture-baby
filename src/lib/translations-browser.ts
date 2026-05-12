@@ -4,10 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
-import { MissingPathConfigError, requireCompilationFilePath, requireTranslationsDir } from '@/lib/data-paths';
+import { getCompilationSelectionHealth } from '@/lib/compilation-selection';
+import { MissingPathConfigError, requireTranslationsDir } from '@/lib/data-paths';
 import { perfLog, withPerfSpan } from '@/lib/perf-log';
 import { getThinkingTimeRange } from '@/lib/reasoning-time';
-import { fileExists, getFileSizeBytes, readTextFile, writeTextFile } from '@/lib/runtime-files';
+import { fileExists, readTextFile, writeTextFile } from '@/lib/runtime-files';
 import type { InvalidExcerptsResponse, JsonValue, TranslationFileResponse } from '@/lib/shell-types';
 import { getTranslationFileAnalyses, invalidateTranslationFileAnalysisCache } from './translation-analysis-cache';
 import { getConversationSourceSegments, parseTranslationToCommon } from './translation-parser';
@@ -142,24 +143,36 @@ export const readTranslationJsonFile = async (rawRelativePath: string): Promise<
 
     const content = await readTextFile(absolutePath);
     const parsedJson = JSON.parse(content) as JsonValue;
-    const sizeBytes = await getFileSizeBytes(absolutePath);
 
     return {
         content: parsedJson,
         modifiedAt: fileStats.mtime.toISOString(),
         name: path.basename(absolutePath),
         relativePath,
-        sizeBytes,
+        sizeBytes: fileStats.size,
     };
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const assertUniqueOperationExcerptIds = (operations: Array<{ excerptId: string }>, operationKind: 'patch' | 'skip') => {
+    const seenExcerptIds = new Set<string>();
+
+    for (const operation of operations) {
+        if (seenExcerptIds.has(operation.excerptId)) {
+            throw new Error(
+                `Duplicate excerptId "${operation.excerptId}" is not allowed in a batch ${operationKind} request.`,
+            );
+        }
+
+        seenExcerptIds.add(operation.excerptId);
+    }
+};
+
 const getNextSkippedExcerptIds = (
     currentSkip: unknown,
-    excerptId: string,
-    skipped: boolean,
+    operations: TranslationSkipOperation[],
     validExcerptIds: Set<string>,
 ) => {
     const nextSkippedIds = new Set<string>();
@@ -172,10 +185,12 @@ const getNextSkippedExcerptIds = (
         }
     }
 
-    if (skipped) {
-        nextSkippedIds.add(excerptId);
-    } else {
-        nextSkippedIds.delete(excerptId);
+    for (const { excerptId, skipped } of operations) {
+        if (skipped) {
+            nextSkippedIds.add(excerptId);
+        } else {
+            nextSkippedIds.delete(excerptId);
+        }
     }
 
     return [...nextSkippedIds].sort();
@@ -184,9 +199,7 @@ const getNextSkippedExcerptIds = (
 const getNextPatchMetadata = (
     currentPatchMetadata: unknown,
     nextPatches: Record<string, RupturePatch>,
-    excerptId: string,
-    patch: RupturePatch | null,
-    patchMetadata?: RupturePatchMetadata,
+    operations: TranslationPatchOperation[],
 ) => {
     const nextPatchMetadata: Record<string, RupturePatchMetadata> = {};
 
@@ -196,10 +209,12 @@ const getNextPatchMetadata = (
         }
     }
 
-    if (patch && patchMetadata) {
-        nextPatchMetadata[excerptId] = patchMetadata;
-    } else {
-        delete nextPatchMetadata[excerptId];
+    for (const operation of operations) {
+        if (operation.patch && operation.patchMetadata) {
+            nextPatchMetadata[operation.excerptId] = operation.patchMetadata;
+        } else {
+            delete nextPatchMetadata[operation.excerptId];
+        }
     }
 
     return nextPatchMetadata;
@@ -231,12 +246,15 @@ const setRuptureMetadata = (
     }
 };
 
-export const writeTranslationPatch = async (
-    rawRelativePath: string,
-    excerptId: string,
-    patch: RupturePatch | null,
-    patchMetadata?: RupturePatchMetadata,
-) => {
+const buildPatchTargetSegments = (conversation: ReturnType<typeof parseTranslationToCommon>) => {
+    const baseTranslatedSegments = parseTranslationsInOrder(conversation.response);
+    const baseTranslatedById = new Map(baseTranslatedSegments.map((segment) => [segment.id, segment.text] as const));
+    const sourceSegments = getConversationSourceSegments(conversation);
+
+    return sourceSegments.map((segment) => ({ id: segment.id, text: baseTranslatedById.get(segment.id) ?? '' }));
+};
+
+const loadMutableTranslationFile = async (rawRelativePath: string) => {
     const translationsDir = requireTranslationsDir();
     const relativePath = normalizeRelativePath(rawRelativePath);
 
@@ -257,77 +275,111 @@ export const writeTranslationPatch = async (
         throw new Error('Translation file must be a JSON object.');
     }
 
-    const conversation = parseTranslationToCommon(parsedJson);
-    const baseTranslatedSegments = parseTranslationsInOrder(conversation.response);
-    const sourceSegments = getConversationSourceSegments(conversation);
-    const patchTargetSegments = sourceSegments.map((segment) => ({
-        id: segment.id,
-        text: baseTranslatedSegments.find((translated) => translated.id === segment.id)?.text ?? '',
-    }));
-    if (!patchTargetSegments.some((segment) => segment.id === excerptId)) {
-        throw new Error('Excerpt not found.');
+    return {
+        absolutePath,
+        conversation: parseTranslationToCommon(parsedJson),
+        parsedJson,
+        relativePath,
+        translationsDir,
+    };
+};
+
+const buildTranslationFileResponse = async (
+    absolutePath: string,
+    relativePath: string,
+    content: Record<string, unknown>,
+    serializedContent: string,
+): Promise<TranslationFileResponse> => {
+    const fileStats = await stat(absolutePath);
+
+    return {
+        content: content as JsonValue,
+        modifiedAt: fileStats.mtime.toISOString(),
+        name: path.basename(absolutePath),
+        relativePath,
+        sizeBytes: Buffer.byteLength(serializedContent, 'utf8'),
+    };
+};
+
+const persistUpdatedTranslationJson = async ({
+    absolutePath,
+    nextContent,
+    relativePath,
+    translationsDir,
+}: {
+    absolutePath: string;
+    nextContent: Record<string, unknown>;
+    relativePath: string;
+    translationsDir: string;
+}) => {
+    const serializedContent = `${JSON.stringify(nextContent, null, 2)}\n`;
+    const tempPath = `${absolutePath}.${randomUUID()}.tmp`;
+    await mkdir(path.dirname(absolutePath), { recursive: true });
+    await writeTextFile(tempPath, serializedContent);
+    await rename(tempPath, absolutePath);
+    invalidateTranslationFileAnalysisCache(translationsDir, relativePath);
+
+    return buildTranslationFileResponse(absolutePath, relativePath, nextContent, serializedContent);
+};
+
+export const writeTranslationPatches = async (rawRelativePath: string, operations: TranslationPatchOperation[]) => {
+    if (operations.length === 0) {
+        return readTranslationJsonFile(rawRelativePath);
+    }
+
+    assertUniqueOperationExcerptIds(operations, 'patch');
+
+    const { absolutePath, conversation, parsedJson, relativePath, translationsDir } =
+        await loadMutableTranslationFile(rawRelativePath);
+    const patchTargetSegments = buildPatchTargetSegments(conversation);
+    const validExcerptIds = new Set(patchTargetSegments.map((segment) => segment.id));
+
+    for (const operation of operations) {
+        if (!validExcerptIds.has(operation.excerptId)) {
+            throw new Error('Excerpt not found.');
+        }
     }
 
     const nextContent = { ...parsedJson };
     const nextRupture = isRecord(nextContent.__rupture) ? { ...nextContent.__rupture } : {};
     const rawNextPatches = { ...(normalizeRupturePatchesForSegments(patchTargetSegments, nextRupture.patches) ?? {}) };
 
-    if (patch) {
-        rawNextPatches[excerptId] = patch;
-    } else {
-        delete rawNextPatches[excerptId];
+    for (const operation of operations) {
+        if (operation.patch) {
+            rawNextPatches[operation.excerptId] = operation.patch;
+        } else {
+            delete rawNextPatches[operation.excerptId];
+        }
     }
 
     const nextPatches = normalizeRupturePatchesForSegments(patchTargetSegments, rawNextPatches) ?? {};
-    const nextPatchMetadata = getNextPatchMetadata(
-        nextRupture.patchMetadata,
-        nextPatches,
-        excerptId,
-        patch,
-        patchMetadata,
-    );
+    const nextPatchMetadata = getNextPatchMetadata(nextRupture.patchMetadata, nextPatches, operations);
 
     setRuptureMetadata(nextContent, nextRupture, nextPatches, nextPatchMetadata);
 
-    const tempPath = `${absolutePath}.${randomUUID()}.tmp`;
-    await mkdir(path.dirname(absolutePath), { recursive: true });
-    await writeTextFile(tempPath, `${JSON.stringify(nextContent, null, 2)}\n`);
-    await rename(tempPath, absolutePath);
-    invalidateTranslationFileAnalysisCache(translationsDir, relativePath);
-
-    return readTranslationJsonFile(relativePath);
+    return persistUpdatedTranslationJson({ absolutePath, nextContent, relativePath, translationsDir });
 };
 
-export const writeTranslationSkip = async (rawRelativePath: string, excerptId: string, skipped: boolean) => {
-    const translationsDir = requireTranslationsDir();
-    const relativePath = normalizeRelativePath(rawRelativePath);
-
-    if (!relativePath.endsWith('.json')) {
-        throw new Error('Only .json files are supported.');
+export const writeTranslationSkips = async (rawRelativePath: string, operations: TranslationSkipOperation[]) => {
+    if (operations.length === 0) {
+        return readTranslationJsonFile(rawRelativePath);
     }
 
-    const absolutePath = path.join(translationsDir, relativePath);
-    assertPathInsideRoot(translationsDir, absolutePath);
+    assertUniqueOperationExcerptIds(operations, 'skip');
 
-    if (!(await fileExists(absolutePath))) {
-        throw new Error('File not found.');
-    }
-
-    const content = await readTextFile(absolutePath);
-    const parsedJson = JSON.parse(content) as unknown;
-    if (!isRecord(parsedJson)) {
-        throw new Error('Translation file must be a JSON object.');
-    }
-
-    const conversation = parseTranslationToCommon(parsedJson);
+    const { absolutePath, conversation, parsedJson, relativePath, translationsDir } =
+        await loadMutableTranslationFile(rawRelativePath);
     const sourceIds = new Set(getConversationSourceSegments(conversation).map((segment) => segment.id));
-    if (!sourceIds.has(excerptId)) {
-        throw new Error('Excerpt not found.');
+
+    for (const operation of operations) {
+        if (!sourceIds.has(operation.excerptId)) {
+            throw new Error('Excerpt not found.');
+        }
     }
 
     const nextContent = { ...parsedJson };
     const nextRupture = isRecord(nextContent.__rupture) ? { ...nextContent.__rupture } : {};
-    const nextSkippedIds = getNextSkippedExcerptIds(nextRupture.skip, excerptId, skipped, sourceIds);
+    const nextSkippedIds = getNextSkippedExcerptIds(nextRupture.skip, operations, sourceIds);
 
     if (nextSkippedIds.length > 0) {
         nextRupture.skip = nextSkippedIds;
@@ -341,13 +393,20 @@ export const writeTranslationSkip = async (rawRelativePath: string, excerptId: s
         }
     }
 
-    const tempPath = `${absolutePath}.${randomUUID()}.tmp`;
-    await mkdir(path.dirname(absolutePath), { recursive: true });
-    await writeTextFile(tempPath, `${JSON.stringify(nextContent, null, 2)}\n`);
-    await rename(tempPath, absolutePath);
-    invalidateTranslationFileAnalysisCache(translationsDir, relativePath);
+    return persistUpdatedTranslationJson({ absolutePath, nextContent, relativePath, translationsDir });
+};
 
-    return readTranslationJsonFile(relativePath);
+export const writeTranslationPatch = async (
+    rawRelativePath: string,
+    excerptId: string,
+    patch: RupturePatch | null,
+    patchMetadata?: RupturePatchMetadata,
+) => {
+    return writeTranslationPatches(rawRelativePath, [{ excerptId, patch, patchMetadata }]);
+};
+
+export const writeTranslationSkip = async (rawRelativePath: string, excerptId: string, skipped: boolean) => {
+    return writeTranslationSkips(rawRelativePath, [{ excerptId, skipped }]);
 };
 
 export const deleteTranslationJsonFile = async (rawRelativePath: string) => {
@@ -403,32 +462,18 @@ export const getDashboardStats = async () => {
         }
     }
 
-    let compilationFileConfigured = true;
-    let compilationFileExists = true;
-    let compilationFilePath: string | null = null;
-
-    try {
-        compilationFilePath = requireCompilationFilePath();
-        await stat(compilationFilePath);
-    } catch (error) {
-        if (error instanceof MissingPathConfigError) {
-            compilationFileConfigured = false;
-            compilationFileExists = false;
-            compilationFilePath = null;
-        } else {
-            compilationFileExists = false;
-        }
-    }
+    const { compilationSelection, health: compilationHealth } = await getCompilationSelectionHealth();
 
     return {
         checkedAt,
+        compilationSelection,
         health: {
-            compilationFileConfigured,
-            compilationFileExists,
-            compilationFilePath,
+            ...compilationHealth,
             ok:
-                compilationFileConfigured &&
-                compilationFileExists &&
+                compilationHealth.compilationFolderConfigured &&
+                compilationHealth.compilationFolderExists &&
+                compilationHealth.activeCompilationConfigured &&
+                compilationHealth.activeCompilationExists &&
                 translationsDirectoryConfigured &&
                 translationsDirectoryExists,
             translationsDirectoryConfigured,
@@ -457,6 +502,14 @@ export type TranslationStats = {
     patchesApplied: number;
     thinkingTimeBreakdown: Record<'10_to_30s' | '1m_plus' | '30_to_60s' | 'lt_10s', number>;
 };
+
+export type TranslationPatchOperation = {
+    excerptId: string;
+    patch: RupturePatch | null;
+    patchMetadata?: RupturePatchMetadata;
+};
+
+export type TranslationSkipOperation = { excerptId: string; skipped: boolean };
 
 export const collectTranslationFilePaths = async (
     currentDirectory: string,

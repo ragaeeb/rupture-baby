@@ -759,51 +759,9 @@ export const resolveConversationSourceSegments = (c: CommonConversationExport, r
         const candidates = promptSegments
             .map((segment, index) => ({ id: segment.id, index }))
             .filter((segment) => responseIdSet.has(segment.id))
-            .map(({ index: startIndex }) => {
-                let promptIndex = startIndex;
-                let responseIndex = 0;
-                let matchedCount = 0;
-                let endIndex = startIndex - 1;
-                const remainingPromptIds = new Set(promptSegments.slice(startIndex).map((segment) => segment.id));
-
-                while (promptIndex < promptSegments.length && responseIndex < responseIds.length) {
-                    const promptId = promptSegments[promptIndex]?.id;
-                    const responseId = responseIds[responseIndex];
-
-                    if (promptId === responseId) {
-                        matchedCount += 1;
-                        endIndex = promptIndex;
-                        if (promptId) {
-                            remainingPromptIds.delete(promptId);
-                        }
-                        promptIndex += 1;
-                        responseIndex += 1;
-                        continue;
-                    }
-
-                    if (promptId && !responseIdSet.has(promptId)) {
-                        remainingPromptIds.delete(promptId);
-                        promptIndex += 1;
-                        continue;
-                    }
-
-                    if (responseId && !remainingPromptIds.has(responseId)) {
-                        responseIndex += 1;
-                        continue;
-                    }
-
-                    if (promptId) {
-                        remainingPromptIds.delete(promptId);
-                    }
-                    promptIndex += 1;
-                }
-
-                if (matchedCount === 0 || endIndex < startIndex) {
-                    return null;
-                }
-
-                return { endIndex, matchedCount, spanLength: endIndex - startIndex + 1, startIndex };
-            })
+            .map(({ index: startIndex }) =>
+                buildPromptAlignmentCandidate(promptSegments, responseIds, responseIdSet, startIndex),
+            )
             .filter(
                 (
                     candidate,
@@ -833,6 +791,65 @@ export const resolveConversationSourceSegments = (c: CommonConversationExport, r
 export const getConversationSourceSegments = (c: CommonConversationExport, responseSegments?: Segment[]) =>
     resolveConversationSourceSegments(c, responseSegments).segments;
 
+const buildPromptAlignmentCandidate = (
+    promptSegments: Segment[],
+    responseIds: string[],
+    responseIdSet: Set<string>,
+    startIndex: number,
+) => {
+    let promptIndex = startIndex;
+    let responseIndex = 0;
+    let matchedCount = 0;
+    let endIndex = startIndex - 1;
+    const remainingPromptIds = new Set(promptSegments.slice(startIndex).map((segment) => segment.id));
+
+    while (promptIndex < promptSegments.length && responseIndex < responseIds.length) {
+        const promptId = promptSegments[promptIndex]?.id;
+        const responseId = responseIds[responseIndex];
+
+        if (advanceMatchingPromptResponseIds(promptId, responseId)) {
+            matchedCount += 1;
+            endIndex = promptIndex;
+            deleteRemainingPromptId(remainingPromptIds, promptId);
+            promptIndex += 1;
+            responseIndex += 1;
+            continue;
+        }
+
+        if (promptId && !responseIdSet.has(promptId)) {
+            deleteRemainingPromptId(remainingPromptIds, promptId);
+            promptIndex += 1;
+            continue;
+        }
+
+        if (responseId && !remainingPromptIds.has(responseId)) {
+            responseIndex += 1;
+            continue;
+        }
+
+        deleteRemainingPromptId(remainingPromptIds, promptId);
+        promptIndex += 1;
+    }
+
+    if (matchedCount === 0 || endIndex < startIndex) {
+        return null;
+    }
+
+    return { endIndex, matchedCount, spanLength: endIndex - startIndex + 1, startIndex };
+};
+
+const advanceMatchingPromptResponseIds = (promptId: string | undefined, responseId: string | undefined) =>
+    promptId === responseId;
+
+const deleteRemainingPromptId = (remainingPromptIds: Set<string>, promptId: string | undefined) => {
+    if (promptId) {
+        remainingPromptIds.delete(promptId);
+    }
+};
+
+const getExcerptTranslator = (model: string | undefined): AITranslator | undefined =>
+    model ? mapTranslatorToId(model) : undefined;
+
 export const validateExcerptsAgainstSourceSegments = (
     arabicSegments: Segment[],
     response: string,
@@ -850,13 +867,15 @@ export const validateExcerptsAgainstSourceSegments = (
     const lastUpdatedAt =
         parseIsoTimestampToSeconds(metadata?.updated_at) ?? parseIsoTimestampToSeconds(metadata?.created_at);
     const excerpts = arabicSegments.map((e, i) => {
+        const translator = getExcerptTranslator(metadata?.model);
+
         return {
             from: 0,
             id: e.id,
             lastUpdatedAt,
             nass: e.text,
             text: translatedSegments[i].text,
-            translator: mapTranslatorToId(metadata?.model!),
+            ...(translator ? { translator } : {}),
         } satisfies Excerpt;
     });
 

@@ -17,28 +17,29 @@ const runCommand: RunCommand = async (command, args) => {
 export const getPackedCompilationFilePath = (compilationFilePath: string) => `${compilationFilePath}.br`;
 
 export const packCompilationFile = async ({
-    compilationFilePath = requireCompilationFilePath(),
+    compilationFilePath,
     runCommand: executeCommand = runCommand,
 }: {
     compilationFilePath?: string;
     runCommand?: RunCommand;
 } = {}) => {
-    const outputPath = getPackedCompilationFilePath(compilationFilePath);
+    const resolvedCompilationFilePath = compilationFilePath ?? (await requireCompilationFilePath());
+    const outputPath = getPackedCompilationFilePath(resolvedCompilationFilePath);
 
     await executeCommand('brotli', [
         '--force',
         '--quality=11',
         '--lgwin=24',
         `--output=${outputPath}`,
-        compilationFilePath,
+        resolvedCompilationFilePath,
     ]);
 
-    const [sourceStats, outputStats] = await Promise.all([stat(compilationFilePath), stat(outputPath)]);
+    const [sourceStats, outputStats] = await Promise.all([stat(resolvedCompilationFilePath), stat(outputPath)]);
 
     return {
         compressedSizeBytes: outputStats.size,
         outputPath,
         sizeBytes: sourceStats.size,
-        sourcePath: compilationFilePath,
+        sourcePath: resolvedCompilationFilePath,
     };
 };

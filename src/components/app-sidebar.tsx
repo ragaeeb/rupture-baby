@@ -5,6 +5,7 @@ import {
     BarChart3,
     CheckSquare,
     ChevronRight,
+    Download,
     File,
     Folder,
     LayoutDashboard,
@@ -104,6 +105,14 @@ const NavigationSection = ({
                         <Link resetScroll={false} search={filterSearch} to="/shift">
                             <StepForward />
                             <span className="min-w-0 truncate">Shift</span>
+                        </Link>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={pathname === '/exports'} tooltip="Compilation Export">
+                        <Link resetScroll={false} search={filterSearch} to="/exports">
+                            <Download />
+                            <span className="min-w-0 truncate">Exports</span>
                         </Link>
                     </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -395,7 +404,8 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
         thinkingTime: thinkingTimeFilter,
     });
     const visibleFilePaths = useMemo(() => getVisibleFilePaths(filteredEntries), [filteredEntries]);
-    const selectedVisibleFilePaths = selectedFilePaths.filter((filePath) => visibleFilePaths.includes(filePath));
+    const visibleFilePathSet = useMemo(() => new Set(visibleFilePaths), [visibleFilePaths]);
+    const selectedVisibleFilePaths = selectedFilePaths.filter((filePath) => visibleFilePathSet.has(filePath));
     const isAllVisibleSelected =
         visibleFilePaths.length > 0 && selectedVisibleFilePaths.length === visibleFilePaths.length;
     const isSomeVisibleSelected =
@@ -424,7 +434,7 @@ export const AppSidebar = ({ entries, rootName, selectedFilePath, translationSta
 
     const handleToggleSelectAllVisible = (checked: boolean) => {
         setSelectedFilePaths((currentPaths) => {
-            const otherSelections = currentPaths.filter((path) => !visibleFilePaths.includes(path));
+            const otherSelections = currentPaths.filter((path) => !visibleFilePathSet.has(path));
             return checked ? [...otherSelections, ...visibleFilePaths] : otherSelections;
         });
     };

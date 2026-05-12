@@ -6,6 +6,13 @@ import {
     isCompilationCollectionKey,
     MAX_COMPILATION_BROWSE_PAGE_SIZE,
 } from '@/lib/compilation-browser-shared';
+import {
+    type CompilationExportProviderId,
+    DEFAULT_COMPILATION_EXPORT_CONTEXT_WINDOW_TOKENS,
+    DEFAULT_COMPILATION_EXPORT_PROVIDER,
+    DEFAULT_COMPILATION_EXPORT_RESERVED_TOKENS,
+    isCompilationExportProviderId,
+} from '@/lib/compilation-export-shared';
 import type { ThinkingTimeRange } from '@/lib/reasoning-time';
 import { isFileViewMode } from '@/lib/translation-file-view-model';
 
@@ -22,6 +29,11 @@ export type CompilationBrowseRouteSearch = RootSearch & {
     collection?: CompilationCollectionKey;
     page?: number;
     pageSize?: number;
+};
+export type CompilationExportRouteSearch = RootSearch & {
+    contextWindowTokens?: number;
+    provider?: CompilationExportProviderId;
+    reservedTokens?: number;
 };
 
 type SearchRecord = Record<string, unknown>;
@@ -165,6 +177,39 @@ export const parseCompilationBrowseRouteSearch = (value: unknown): CompilationBr
         search.pageSize = safePageSize;
     } else {
         delete search.pageSize;
+    }
+
+    return sanitizeSearch(search);
+};
+
+export const parseCompilationExportRouteSearch = (value: unknown): CompilationExportRouteSearch => {
+    const search = parseBrowseSearch(value) as CompilationExportRouteSearch;
+    const rawSearch = toSearchRecord(value);
+    const provider = isCompilationExportProviderId(rawSearch.provider)
+        ? rawSearch.provider
+        : DEFAULT_COMPILATION_EXPORT_PROVIDER;
+    const contextWindowTokens = parsePositiveInt(rawSearch.contextWindowTokens);
+    const reservedTokens = parsePositiveInt(rawSearch.reservedTokens);
+
+    if (provider !== DEFAULT_COMPILATION_EXPORT_PROVIDER) {
+        search.provider = provider;
+    } else {
+        delete search.provider;
+    }
+
+    if (
+        typeof contextWindowTokens === 'number' &&
+        contextWindowTokens !== DEFAULT_COMPILATION_EXPORT_CONTEXT_WINDOW_TOKENS
+    ) {
+        search.contextWindowTokens = contextWindowTokens;
+    } else {
+        delete search.contextWindowTokens;
+    }
+
+    if (typeof reservedTokens === 'number' && reservedTokens !== DEFAULT_COMPILATION_EXPORT_RESERVED_TOKENS) {
+        search.reservedTokens = reservedTokens;
+    } else {
+        delete search.reservedTokens;
     }
 
     return sanitizeSearch(search);

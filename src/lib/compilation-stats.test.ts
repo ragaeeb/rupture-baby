@@ -41,12 +41,12 @@ describe('getCompilationStats', () => {
     beforeEach(async () => {
         tempDir = await mkdtemp(path.join(os.tmpdir(), 'rupture-compilation-stats-'));
         compilationFilePath = path.join(tempDir, 'compilation.json');
-        process.env.COMPILATION_FILE_PATH = compilationFilePath;
+        process.env.COMPILATION_FOLDER = tempDir;
         invalidateCompilationStatsCache();
     });
 
     afterEach(async () => {
-        delete process.env.COMPILATION_FILE_PATH;
+        delete process.env.COMPILATION_FOLDER;
         invalidateCompilationStatsCache();
         if (tempDir) {
             await rm(tempDir, { force: true, recursive: true });

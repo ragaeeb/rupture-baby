@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { getConversationSourceSegments, parseTranslationToCommon } from './translation-parser';
-import { parseTranslationsInOrder } from './validation/textUtils';
 import type { MessageNode } from './translation-types';
+import { parseTranslationsInOrder } from './validation/textUtils';
 
 const ruptureMeta = { patches: { P1: { ops: [{ end: 4, start: 0, text: 'patch' }] } } };
 

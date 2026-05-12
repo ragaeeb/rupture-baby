@@ -77,10 +77,7 @@ describe('translation validity visibility', () => {
 
         const analysis = analyzeTranslationValidity(
             JSON.stringify({
-                __rupture: {
-                    patches: { P4: patch },
-                    skip: ['P2', 'P3'],
-                },
+                __rupture: { patches: { P4: patch }, skip: ['P2', 'P3'] },
                 format: 'common',
                 llm: 'ChatGPT',
                 model: 'gpt-5-4-pro',

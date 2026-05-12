@@ -1,17 +1,16 @@
-import { Link } from '@tanstack/react-router';
+import { Link, useRouter } from '@tanstack/react-router';
 
-import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
+import { ActiveCompilationPanel } from '@/components/active-compilation-panel';
 import { PackCompilationButton } from '@/components/pack-compilation-button';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { THINKING_TIME_BUCKETS } from '@/lib/reasoning-time';
+import { saveActiveCompilationSelectionData } from '@/lib/server-functions';
 import type { DashboardStatsResponse } from '@/lib/shell-types';
 import { formatUnixSecondsToUtcString } from '@/lib/time';
 
 type DashboardPageProps = { stats: DashboardStatsResponse | null; statsError: string | null };
-
-export const canPackCompilation = (compilationStats: DashboardStatsResponse['compilationStats']) =>
-    Boolean(compilationStats && compilationStats.untranslatedSegments === 0);
 
 const formatCheckedAt = (checkedAt: string | undefined) => {
     if (!checkedAt) {
@@ -46,7 +45,7 @@ const CompilationStatsCard = ({ compilationStats }: CompilationStatsCardProps) =
     <div className="rounded-xl border bg-card p-4">
         <div className="flex items-start justify-between gap-3">
             <h2 className="font-semibold text-base">Compilation Stats</h2>
-            {canPackCompilation(compilationStats) ? <PackCompilationButton /> : null}
+            <PackCompilationButton />
         </div>
         <div className="mt-3 grid gap-4 md:grid-cols-4">
             <div>
@@ -129,13 +128,18 @@ const getConfiguredPathStatus = ({
     return `${path ?? 'Configured path'} (missing)`;
 };
 
+export const canPackCompilation = (
+    compilationStats: NonNullable<DashboardStatsResponse['compilationStats']> | null | undefined,
+): boolean => Boolean(compilationStats && compilationStats.untranslatedSegments === 0);
+
 const DashboardPage = ({ stats, statsError }: DashboardPageProps) => {
+    const router = useRouter();
     const translationStats = stats?.translationStats;
-    const compilationFileStatus = stats
+    const compilationFolderStatus = stats
         ? getConfiguredPathStatus({
-              configured: stats.health.compilationFileConfigured,
-              exists: stats.health.compilationFileExists,
-              path: stats.health.compilationFilePath,
+              configured: stats.health.compilationFolderConfigured,
+              exists: stats.health.compilationFolderExists,
+              path: stats.health.compilationFolderPath,
           })
         : null;
     const translationsDirectoryStatus = stats
@@ -143,6 +147,13 @@ const DashboardPage = ({ stats, statsError }: DashboardPageProps) => {
               configured: stats.health.translationsDirectoryConfigured,
               exists: stats.health.translationsDirectoryExists,
               path: stats.health.translationsDirectoryPath,
+          })
+        : null;
+    const activeCompilationStatus = stats
+        ? getConfiguredPathStatus({
+              configured: stats.health.activeCompilationConfigured,
+              exists: stats.health.activeCompilationExists,
+              path: stats.health.activeCompilationFilePath,
           })
         : null;
 
@@ -173,8 +184,12 @@ const DashboardPage = ({ stats, statsError }: DashboardPageProps) => {
                             </span>
                         </p>
                         <div className="mt-2 text-sm">
-                            <p>Compilation file:</p>
-                            <p className="mt-1 break-all text-muted-foreground">{compilationFileStatus ?? '...'}</p>
+                            <p>Compilation folder:</p>
+                            <p className="mt-1 break-all text-muted-foreground">{compilationFolderStatus ?? '...'}</p>
+                        </div>
+                        <div className="mt-2 text-sm">
+                            <p>Active compilation:</p>
+                            <p className="mt-1 break-all text-muted-foreground">{activeCompilationStatus ?? '...'}</p>
                         </div>
                         <div className="mt-2 text-sm">
                             <p>Translations directory:</p>
@@ -240,6 +255,16 @@ const DashboardPage = ({ stats, statsError }: DashboardPageProps) => {
                         </div>
                     </div>
                 </div>
+
+                <ActiveCompilationPanel
+                    data={stats?.compilationSelection ?? null}
+                    description="Pick which visible compilation JSON file drives excerpts, prompts, shift state, playback, and analytics."
+                    onSave={async (fileName) => {
+                        await saveActiveCompilationSelectionData({ data: { fileName } });
+                        await router.invalidate({ sync: true });
+                    }}
+                    title="Active Compilation"
+                />
 
                 <CompilationStatsCard compilationStats={stats?.compilationStats} />
             </div>

@@ -17,6 +17,7 @@ It serves untranslated excerpts from a large compilation file, browses saved tra
 - builds prompt-aware translation payloads and shift-oriented excerpt batches
 - stores the active translation prompt in the compilation file itself
 - provides a dashboard, analytics page, compilation browser, valid playback page, and shift control page
+- provides a compilation export page for chunked JSON attachment downloads
 - provides a sidebar-driven translation file browser with model, status, and thinking-time filters
 - validates translated responses against source excerpt IDs and content rules
 - supports inline excerpt editing with staged local patches
@@ -33,6 +34,7 @@ It serves untranslated excerpts from a large compilation file, browses saved tra
 - `/analytics` compilation and patch analytics
 - `/compilation` paginated compilation browser with row selection and copy-with-prompt
 - `/shift` persisted shift checkpoint control
+- `/exports` chunked compilation JSON export planner
 - `/valid` valid playback simulation and save flow
 - `/invalid` invalid excerpt triage and batch repair
 - `/translations/:fileNameId` translation review/editor
@@ -125,15 +127,18 @@ The settings page stores the selected provider in browser local storage. `LLM_AS
 
 ## Compilation and Playback
 
-The compilation file is the large corpus source configured by `COMPILATION_FILE_PATH`.
+The compilation source is selected from visible `.json` files inside `COMPILATION_FOLDER`.
 
 Key behavior:
 
+- the active compilation is chosen from the dashboard or settings page and persisted as `.active-compilation.json` inside `COMPILATION_FOLDER`
+- hidden sidecars such as `.*.settings.json`, `.*.stats-cache.json`, and other dot-prefixed JSON files are ignored when building the selectable list
 - compilation routes should not load the full JSON file into memory per request
 - excerpt extraction, prompt lookup, and shift state use streaming parsing where practical
 - untranslated excerpt subsets can be cached in memory, but cache invalidation must respect source file changes
 - valid playback is simulated first and only saved to disk after explicit confirmation
 - shift progress is persisted in a checkpoint file beside the compilation JSON
+- a derived compilation snapshot cache may also be persisted beside the compilation JSON as `.<compilation-name>.compilation-cache.json`; it is disposable and will be regenerated on demand
 
 ## API Routes
 
@@ -143,6 +148,7 @@ Key behavior:
 - `GET /api/compilation/excerpts/payload?maxTokens=4000&maxItems=10000&modelId=879`
 - `GET /api/compilation/excerpts/shift?provider=openai&maxTokens=7000`
 - `GET /api/compilation/prompt`
+- `GET /api/compilation/export?...`
 - `POST /api/compilation/prompt`
 
 ### Translation files
@@ -171,7 +177,7 @@ Notes:
 
 Required:
 
-- `COMPILATION_FILE_PATH`
+- `COMPILATION_FOLDER`
 - `TRANSLATIONS_DIR`
 
 Assist providers:
@@ -194,7 +200,7 @@ Optional assist tuning:
 Example:
 
 ```bash
-COMPILATION_FILE_PATH=/Users/user/workspace/compilations/1119.json
+COMPILATION_FOLDER=/Users/user/workspace/compilations
 TRANSLATIONS_DIR=/Users/user/workspace/compilations/translations
 NVIDIA_API_KEY=your_nvidia_api_key
 GOOGLE_API_KEY=your_google_api_key

@@ -7,6 +7,35 @@ export type TranslationTreeFilter = {
     thinkingTime: 'all' | Exclude<ThinkingTimeRange, 'all'>;
 };
 
+const hasActiveTreeFilters = (filter: TranslationTreeFilter) =>
+    filter.model !== 'all' || filter.status !== 'all' || filter.thinkingTime !== 'all';
+
+const createPathFilterSets = (filter: TranslationTreeFilter) => ({
+    modelPaths: filter.model !== 'all' ? new Set<string>() : null,
+    statusPaths: filter.status !== 'all' ? new Set<string>() : null,
+    thinkingTimePaths: filter.thinkingTime !== 'all' ? new Set<string>() : null,
+});
+
+const populatePathFilterSets = (
+    translationStats: TranslationStats,
+    filter: TranslationTreeFilter,
+    filterSets: ReturnType<typeof createPathFilterSets>,
+) => {
+    for (const file of translationStats.files) {
+        if (filterSets.modelPaths && file.model === filter.model) {
+            filterSets.modelPaths.add(file.path);
+        }
+
+        if (filterSets.statusPaths && (filter.status === 'valid' ? file.isValid : !file.isValid)) {
+            filterSets.statusPaths.add(file.path);
+        }
+
+        if (filterSets.thinkingTimePaths && getThinkingTimeRange(file.reasoningDurationSec) === filter.thinkingTime) {
+            filterSets.thinkingTimePaths.add(file.path);
+        }
+    }
+};
+
 const filterTreeNode = (
     node: TranslationTreeNode,
     modelPaths: Set<string> | null,
@@ -46,7 +75,7 @@ export const filterTranslationTreeEntries = (
     translationStats: TranslationStats | null | undefined,
     filter: TranslationTreeFilter,
 ): TranslationTreeNode[] => {
-    const hasActiveFilters = filter.model !== 'all' || filter.status !== 'all' || filter.thinkingTime !== 'all';
+    const hasActiveFilters = hasActiveTreeFilters(filter);
 
     if (!translationStats) {
         return hasActiveFilters ? [] : entries;
@@ -56,30 +85,12 @@ export const filterTranslationTreeEntries = (
         return entries;
     }
 
-    const modelPaths =
-        filter.model !== 'all'
-            ? new Set(translationStats.files.filter((file) => file.model === filter.model).map((file) => file.path))
-            : null;
-
-    const statusPaths =
-        filter.status !== 'all'
-            ? new Set(
-                  translationStats.files
-                      .filter((file) => (filter.status === 'valid' ? file.isValid : !file.isValid))
-                      .map((file) => file.path),
-              )
-            : null;
-
-    const thinkingTimePaths =
-        filter.thinkingTime !== 'all'
-            ? new Set(
-                  translationStats.files
-                      .filter((file) => getThinkingTimeRange(file.reasoningDurationSec) === filter.thinkingTime)
-                      .map((file) => file.path),
-              )
-            : null;
+    const filterSets = createPathFilterSets(filter);
+    populatePathFilterSets(translationStats, filter, filterSets);
 
     return entries
-        .map((node) => filterTreeNode(node, modelPaths, statusPaths, thinkingTimePaths))
+        .map((node) =>
+            filterTreeNode(node, filterSets.modelPaths, filterSets.statusPaths, filterSets.thinkingTimePaths),
+        )
         .filter((node): node is TranslationTreeNode => node !== null);
 };

@@ -36,10 +36,19 @@ export const analyzeTranslationValidity = (content: string): TranslationValidity
     const patchedExcerptIds = new Set(Object.keys(savedPatches ?? {}));
     const skippedExcerptIds = getSkippedExcerptIds(parsed);
     const translatedSegments = applyRupturePatchesToSegments(patchTargetSegments, savedPatches);
-    const unskippedArabicSegments = sourceSegments.filter((segment) => !skippedExcerptIds.has(segment.id));
-    const unskippedTranslatedSegments = translatedSegments.filter((segment) => !skippedExcerptIds.has(segment.id));
-    const patchedResponse = unskippedTranslatedSegments.map((segment) => `${segment.id} - ${segment.text}`).join('\n\n');
-    const validation = validateExcerptsAgainstSourceSegments(unskippedArabicSegments, patchedResponse, parsed);
+    // Include a segment for validation if it is not skipped, OR if it is skipped but has
+    // non-empty translated content so content errors (e.g. arabic_leak) are still captured.
+    const segmentsForValidation = new Set(
+        translatedSegments
+            .filter((segment) => !skippedExcerptIds.has(segment.id) || segment.text.length > 0)
+            .map((segment) => segment.id),
+    );
+    const validationArabicSegments = sourceSegments.filter((segment) => segmentsForValidation.has(segment.id));
+    const validationTranslatedSegments = translatedSegments.filter((segment) => segmentsForValidation.has(segment.id));
+    const patchedResponse = validationTranslatedSegments
+        .map((segment) => `${segment.id} - ${segment.text}`)
+        .join('\n\n');
+    const validation = validateExcerptsAgainstSourceSegments(validationArabicSegments, patchedResponse, parsed);
 
     return {
         baseTranslatedById,

@@ -96,10 +96,7 @@ describe('buildTranslationTableModel', () => {
         }
 
         expect(model.arabicLeakExcerpts).toEqual([
-            expect.objectContaining({
-                id: 'P1',
-                matchHints: ['مرحبا', 'مع السلامة'],
-            }),
+            expect.objectContaining({ id: 'P1', matchHints: ['مرحبا', 'مع السلامة'] }),
         ]);
     });
 
@@ -132,24 +129,13 @@ describe('buildTranslationTableModel', () => {
             throw new Error('Expected table model to be created');
         }
 
-        expect(model.responseIds.slice(0, 5)).toEqual([
-            'P214846a',
-            'P214847',
-            'P214848',
-            'P214848a',
-            'P214848b',
-        ]);
-        expect(model.sourceIds.slice(0, 5)).toEqual([
-            'P214846a',
-            'P214847',
-            'P214848',
-            'P214848a',
-            'P214848b',
-        ]);
+        expect(model.responseIds.slice(0, 5)).toEqual(['P214846a', 'P214847', 'P214848', 'P214848a', 'P214848b']);
+        expect(model.sourceIds.slice(0, 5)).toEqual(['P214846a', 'P214847', 'P214848', 'P214848a', 'P214848b']);
     });
 
     it('should resolve the real source block even when the response invents an extra id', () => {
-        const filePath = '/Users/rhaq/workspace/compilations/translations/Translation_of_Islamic_Texts_2026-04-09_23-43-27.json';
+        const filePath =
+            '/Users/rhaq/workspace/compilations/translations/Translation_of_Islamic_Texts_2026-04-09_23-43-27.json';
         const conversation = parseTranslationToCommon(JSON.parse(readFileSync(filePath, 'utf8')));
 
         const model = buildTranslationTableModel(conversation, {}, filePath);
@@ -157,13 +143,7 @@ describe('buildTranslationTableModel', () => {
             throw new Error('Expected table model to be created');
         }
 
-        expect(model.sourceIds.slice(0, 5)).toEqual([
-            'P214846a',
-            'P214847',
-            'P214848',
-            'P214848a',
-            'P214848b',
-        ]);
+        expect(model.sourceIds.slice(0, 5)).toEqual(['P214846a', 'P214847', 'P214848', 'P214848a', 'P214848b']);
         expect(model.sourceIds).not.toContain('P1234');
         expect(model.sourceIds).not.toContain('P405');
         expect(model.sourceIds).not.toContain('P5455');
