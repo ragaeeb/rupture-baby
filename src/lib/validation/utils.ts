@@ -544,7 +544,7 @@ const validateAllCaps = (context: ValidationContext): ValidationError[] => {
     const containsUppercasePattern = /[\p{Lu}\p{Lt}]/u;
 
     const isAllCapsToken = (token: string) =>
-        containsUppercasePattern.test(token) && !containsLowercasePattern.test(token);
+        token.length > 1 && containsUppercasePattern.test(token) && !containsLowercasePattern.test(token);
 
     for (const marker of context.markers) {
         const text = context.normalizedResponse.slice(marker.translationStart, marker.translationEnd);

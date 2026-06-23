@@ -65,4 +65,13 @@ describe('validateTranslationResponse', () => {
             expect.objectContaining({ id: 'P1', matchText: 'THEY BELIEVE IN AL-JIBT AND AL-ṬĀGHŪT', type: 'all_caps' }),
         );
     });
+
+    it('should not flag runs of single-letter initials as all caps', () => {
+        const result = validateTranslationResponse(
+            [{ id: 'P1', text: 'ج ز م\nجزم جمز مزج زمج زجم: مستعملة.' }],
+            'P1 - J Z M\n\nJ Z M, J M Z, M Z J, Z M J, Z J M: Used roots.',
+        );
+
+        expect(result.errors.filter((error) => error.type === 'all_caps')).toHaveLength(0);
+    });
 });

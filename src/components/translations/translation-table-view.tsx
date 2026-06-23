@@ -1,6 +1,6 @@
 'use client';
 
-import { Ban, Wrench } from 'lucide-react';
+import { Ban, Check, Wrench } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { EditableTranslationContent } from '@/components/translations/editable-translation-content';
@@ -218,6 +218,7 @@ const TranslationRow = ({
     isEditing,
     isSelected,
     onDraftChange,
+    onCommitRow,
     onStartEditing,
     onStopEditing,
     onToggleSelect,
@@ -228,6 +229,7 @@ const TranslationRow = ({
     isEditing: boolean;
     isSelected: boolean;
     onDraftChange: (id: string, originalText: string, nextText: string) => void;
+    onCommitRow: (id: string) => void;
     onStartEditing: (id: string) => void;
     onStopEditing: () => void;
     onToggleSelect: (id: string, checked: boolean) => void;
@@ -258,6 +260,16 @@ const TranslationRow = ({
                     >
                         <Ban className="size-3" />
                     </button>
+                    {row.isDirty ? (
+                        <button
+                            aria-label={`Commit ${row.id}`}
+                            className="inline-flex size-6 items-center justify-center rounded border border-emerald-600/30 bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"
+                            onClick={() => onCommitRow(row.id)}
+                            type="button"
+                        >
+                            <Check className="size-3.5" />
+                        </button>
+                    ) : null}
                 </div>
             </td>
             <td className="whitespace-pre-wrap px-4 py-3 align-top text-sm" dir="rtl">
@@ -311,6 +323,7 @@ type TranslationTableViewProps = {
     model: TranslationTableModel | null;
     onAutoFixArabicLeaks: () => void;
     onBulkSetSkip: (skipped: boolean) => void;
+    onCommitRow: (id: string) => void;
     onDraftChange: (id: string, originalText: string, nextText: string) => void;
     onToggleSelectAll: (checked: boolean) => void;
     onToggleSelectRow: (id: string, checked: boolean) => void;
@@ -326,6 +339,7 @@ export const TranslationTableView = ({
     model,
     onAutoFixArabicLeaks,
     onBulkSetSkip,
+    onCommitRow,
     onDraftChange,
     onToggleSelectAll,
     onToggleSelectRow,
@@ -400,6 +414,7 @@ export const TranslationTableView = ({
                                 isEditing={editingRowId === row.id}
                                 isSelected={selectedRowIdSet.has(row.id)}
                                 onDraftChange={onDraftChange}
+                                onCommitRow={onCommitRow}
                                 onStartEditing={setEditingRowId}
                                 onStopEditing={() => setEditingRowId(null)}
                                 onToggleSelect={onToggleSelectRow}

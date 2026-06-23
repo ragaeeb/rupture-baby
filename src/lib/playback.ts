@@ -52,12 +52,6 @@ const setCompilationTarget = (
 };
 
 export const applyExcerptsToCompilation = (compilation: Compilation, excerpts: Excerpt[]) => {
-    const unknownTranslator = excerpts.find((excerpt) => !excerpt.translator);
-
-    if (unknownTranslator) {
-        throw new Error(`${unknownTranslator.id} has no translator`);
-    }
-
     const nextCompilation: Compilation = {
         ...compilation,
         excerpts: [...compilation.excerpts],

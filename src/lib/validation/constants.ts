@@ -1,22 +1,4 @@
 /**
- * Supported marker types for segments.
- */
-export enum Markers {
-    /** B - Book reference */
-    Book = 'B',
-    /** F - Footnote reference */
-    Footnote = 'F',
-    /** T - Heading reference */
-    Heading = 'T',
-    /** C - Chapter reference */
-    Chapter = 'C',
-    /** N - Note reference */
-    Note = 'N',
-    /** P - Plain segment */
-    Plain = 'P',
-}
-
-/**
  * Regex parts for building translation marker patterns.
  */
 export const TRANSLATION_MARKER_PARTS = {
@@ -24,8 +6,8 @@ export const TRANSLATION_MARKER_PARTS = {
     dashes: '[-–—]',
     /** Numeric portion of the reference */
     digits: '\\d+',
-    /** Valid marker prefixes (Book, Chapter, Footnote, Translation, Page) */
-    markers: `[${Object.values(Markers).join('')}]`,
+    /** Valid marker prefixes (Book, Chapter, Footnote, Translation, Page, etc.) */
+    markers: '[A-Z]+',
     /** Optional whitespace before dash */
     optionalSpace: '\\s?',
     /** Valid single-letter suffixes */

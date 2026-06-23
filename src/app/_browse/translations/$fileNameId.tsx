@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
-import { startTransition, useEffect, useMemo, useState } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import { ConversationView } from '@/components/conversation-view';
 import { DeleteButton } from '@/components/delete-button';
 import { TranslationTableView } from '@/components/translations/translation-table-view';
@@ -140,6 +140,7 @@ type TranslationFileViewportProps = {
     onAutoFixErrors: () => void;
     onBulkSetSkip: (skipped: boolean) => void;
     onCommitPending: () => void;
+    onCommitRow: (excerptId: string) => void;
     onDeleteFile: () => Promise<void>;
     onDraftChange: (excerptId: string, originalText: string, nextText: string) => void;
     onToggleSelectAllRows: (checked: boolean) => void;
@@ -164,6 +165,7 @@ const TranslationFileViewport = ({
     onAutoFixErrors,
     onBulkSetSkip,
     onCommitPending,
+    onCommitRow,
     onDeleteFile,
     onDraftChange,
     onToggleSelectAllRows,
@@ -239,6 +241,7 @@ const TranslationFileViewport = ({
                     model={tableModel}
                     onAutoFixArabicLeaks={onAutoFixErrors}
                     onBulkSetSkip={onBulkSetSkip}
+                    onCommitRow={onCommitRow}
                     onDraftChange={onDraftChange}
                     onToggleSelectAll={onToggleSelectAllRows}
                     onToggleSelectRow={onToggleSelectRow}
@@ -336,6 +339,7 @@ const runAutoFixErrors = async ({
 };
 
 const commitPendingTranslationEdits = async ({
+    commitExcerptIds,
     content,
     filePath,
     pendingEdits,
@@ -343,6 +347,7 @@ const commitPendingTranslationEdits = async ({
     setContent,
     setPendingEdits,
 }: {
+    commitExcerptIds?: string[];
     content: unknown;
     filePath: string;
     pendingEdits: PendingEditMap;
@@ -350,11 +355,19 @@ const commitPendingTranslationEdits = async ({
     setContent: (value: unknown) => void;
     setPendingEdits: (value: PendingEditMap | ((current: PendingEditMap) => PendingEditMap)) => void;
 }) => {
-    const operations = Object.entries(pendingEdits).map(([excerptId, pendingEdit]) => ({
-        excerptId,
-        patch: pendingEdit.patch,
-        patchMetadata: pendingEdit.metadata,
-    }));
+    const commitIdSet = commitExcerptIds ? new Set(commitExcerptIds) : null;
+    const operations = Object.entries(pendingEdits)
+        .filter(([excerptId]) => !commitIdSet || commitIdSet.has(excerptId))
+        .map(([excerptId, pendingEdit]) => ({
+            excerptId,
+            patch: pendingEdit.patch,
+            patchMetadata: pendingEdit.metadata,
+        }));
+
+    if (operations.length === 0) {
+        return;
+    }
+
     const latestFile =
         operations.length === 1
             ? await commitTranslationPatch({
@@ -374,12 +387,20 @@ const commitPendingTranslationEdits = async ({
     const nextContent = mergePersistedRuptureMeta(content, latestFile.content);
     startTransition(() => {
         setContent(nextContent);
-        setPendingEdits({});
+        const committedIdSet = new Set(operations.map((operation) => operation.excerptId));
+        setPendingEdits((currentEdits) => {
+            const nextEdits = { ...currentEdits };
+            for (const excerptId of committedIdSet) {
+                delete nextEdits[excerptId];
+            }
+            return nextEdits;
+        });
     });
     await router.invalidate({ sync: true });
 };
 
 const commitPendingTranslationEditsSafely = async ({
+    commitExcerptIds,
     content,
     filePath,
     isCommitting,
@@ -390,6 +411,7 @@ const commitPendingTranslationEditsSafely = async ({
     setIsCommitting,
     setPendingEdits,
 }: {
+    commitExcerptIds?: string[];
     content: unknown;
     filePath: string;
     isCommitting: boolean;
@@ -406,7 +428,15 @@ const commitPendingTranslationEditsSafely = async ({
 
     setIsCommitting(true);
     try {
-        await commitPendingTranslationEdits({ content, filePath, pendingEdits, router, setContent, setPendingEdits });
+        await commitPendingTranslationEdits({
+            commitExcerptIds,
+            content,
+            filePath,
+            pendingEdits,
+            router,
+            setContent,
+            setPendingEdits,
+        });
     } catch (error) {
         console.error('Failed to commit translation patches', error);
     } finally {
@@ -420,7 +450,6 @@ const updateSingleSkipState = async ({
     filePath,
     router,
     setContent,
-    setPendingEdits,
     setSelectedRowIds,
     skipped,
 }: {
@@ -429,7 +458,6 @@ const updateSingleSkipState = async ({
     filePath: string;
     router: ReturnType<typeof useRouter>;
     setContent: (value: unknown) => void;
-    setPendingEdits: (value: PendingEditMap | ((current: PendingEditMap) => PendingEditMap)) => void;
     setSelectedRowIds: (value: string[] | ((current: string[]) => string[])) => void;
     skipped: boolean;
 }) => {
@@ -438,15 +466,6 @@ const updateSingleSkipState = async ({
 
     startTransition(() => {
         setContent(nextContent);
-        setPendingEdits((currentEdits) => {
-            if (!(excerptId in currentEdits)) {
-                return currentEdits;
-            }
-
-            const nextEdits = { ...currentEdits };
-            delete nextEdits[excerptId];
-            return nextEdits;
-        });
         setSelectedRowIds((currentIds) => currentIds.filter((id) => id !== excerptId));
     });
     await router.invalidate({ sync: true });
@@ -458,7 +477,6 @@ const updateSingleSkipStateSafely = async ({
     filePath,
     router,
     setContent,
-    setPendingEdits,
     setSelectedRowIds,
     setSkippingRowId,
     skipped,
@@ -469,7 +487,6 @@ const updateSingleSkipStateSafely = async ({
     filePath: string;
     router: ReturnType<typeof useRouter>;
     setContent: (value: unknown) => void;
-    setPendingEdits: (value: PendingEditMap | ((current: PendingEditMap) => PendingEditMap)) => void;
     setSelectedRowIds: (value: string[] | ((current: string[]) => string[])) => void;
     setSkippingRowId: (value: string | null) => void;
     skipped: boolean;
@@ -481,16 +498,7 @@ const updateSingleSkipStateSafely = async ({
 
     setSkippingRowId(excerptId);
     try {
-        await updateSingleSkipState({
-            content,
-            excerptId,
-            filePath,
-            router,
-            setContent,
-            setPendingEdits,
-            setSelectedRowIds,
-            skipped,
-        });
+        await updateSingleSkipState({ content, excerptId, filePath, router, setContent, setSelectedRowIds, skipped });
     } catch (error) {
         console.error('Failed to update skipped excerpt state', error);
     } finally {
@@ -504,7 +512,6 @@ const updateBulkSkipState = async ({
     router,
     selectedRowIdSet,
     setContent,
-    setPendingEdits,
     setSelectedRowIds,
     skipped,
     tableModel,
@@ -514,7 +521,6 @@ const updateBulkSkipState = async ({
     router: ReturnType<typeof useRouter>;
     selectedRowIdSet: Set<string>;
     setContent: (value: unknown) => void;
-    setPendingEdits: (value: PendingEditMap | ((current: PendingEditMap) => PendingEditMap)) => void;
     setSelectedRowIds: (value: string[]) => void;
     skipped: boolean;
     tableModel: NonNullable<ReturnType<typeof buildTranslationTableModel>>;
@@ -537,12 +543,8 @@ const updateBulkSkipState = async ({
     }
 
     const nextContent = mergePersistedRuptureMeta(content, latestFile.content);
-    const targetRowIds = new Set(targetRows.map((row) => row.id));
     startTransition(() => {
         setContent(nextContent);
-        setPendingEdits((currentEdits) =>
-            Object.fromEntries(Object.entries(currentEdits).filter(([excerptId]) => !targetRowIds.has(excerptId))),
-        );
         setSelectedRowIds([]);
     });
     await router.invalidate({ sync: true });
@@ -555,7 +557,6 @@ const updateBulkSkipStateSafely = async ({
     selectedRowIdSet,
     selectedRowIds,
     setContent,
-    setPendingEdits,
     setSelectedRowIds,
     setSkippingRowId,
     skipped,
@@ -568,7 +569,6 @@ const updateBulkSkipStateSafely = async ({
     selectedRowIdSet: Set<string>;
     selectedRowIds: string[];
     setContent: (value: unknown) => void;
-    setPendingEdits: (value: PendingEditMap | ((current: PendingEditMap) => PendingEditMap)) => void;
     setSelectedRowIds: (value: string[]) => void;
     setSkippingRowId: (value: string | null) => void;
     skipped: boolean;
@@ -587,7 +587,6 @@ const updateBulkSkipStateSafely = async ({
             router,
             selectedRowIdSet,
             setContent,
-            setPendingEdits,
             setSelectedRowIds,
             skipped,
             tableModel,
@@ -618,8 +617,14 @@ function TranslationFileContent() {
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const view = isFileViewMode(search.view ?? null) ? (search.view ?? 'table') : 'table';
     const filePath = fileData.relativePath;
+    const previousFilePathRef = useRef(filePath);
 
     useEffect(() => {
+        if (previousFilePathRef.current === filePath) {
+            return;
+        }
+
+        previousFilePathRef.current = filePath;
         resetTranslationFileState({
             nextContent: fileData.content,
             setContent,
@@ -630,7 +635,7 @@ function TranslationFileContent() {
             setSelectedRowIds,
             setSkippingRowId,
         });
-    }, [fileData.content]);
+    }, [fileData.content, filePath]);
 
     const conversation = useMemo(() => {
         try {
@@ -704,6 +709,20 @@ function TranslationFileContent() {
             setPendingEdits,
         });
 
+    const handleCommitRow = (excerptId: string) =>
+        commitPendingTranslationEditsSafely({
+            commitExcerptIds: [excerptId],
+            content,
+            filePath,
+            isCommitting,
+            pendingEditCount: excerptId in pendingEdits ? 1 : 0,
+            pendingEdits,
+            router,
+            setContent,
+            setIsCommitting,
+            setPendingEdits,
+        });
+
     const handleFileDeleted = async () => {
         await deleteTranslationFile({ data: { relativePath: filePath } });
         await router.invalidate({ sync: true });
@@ -717,7 +736,6 @@ function TranslationFileContent() {
             filePath,
             router,
             setContent,
-            setPendingEdits,
             setSelectedRowIds,
             setSkippingRowId,
             skipped,
@@ -746,7 +764,6 @@ function TranslationFileContent() {
             selectedRowIdSet,
             selectedRowIds,
             setContent,
-            setPendingEdits,
             setSelectedRowIds,
             setSkippingRowId,
             skipped,
@@ -765,6 +782,7 @@ function TranslationFileContent() {
             onAutoFixErrors={() => void handleAutoFixErrors()}
             onBulkSetSkip={(skipped) => void handleBulkSetSkip(skipped)}
             onCommitPending={() => void handleCommitPending()}
+            onCommitRow={(excerptId) => void handleCommitRow(excerptId)}
             onDeleteFile={handleFileDeleted}
             onDraftChange={handleDraftChange}
             onToggleSelectAllRows={handleToggleSelectAllRows}

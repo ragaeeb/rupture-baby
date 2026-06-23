@@ -106,16 +106,36 @@ const isOpenAiGptModel = (modelSlug: string | undefined): boolean => {
     return /^(gpt|o1|o3|o4|o5)/.test(lower) || lower.includes('chatgpt');
 };
 
+const unescapeNewlines = (text: string): string => (text.includes('\\n') ? text.replaceAll('\\n', '\n') : text);
+
+const cleanGeminiEnvelope = (text: string): string => {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('[[') && trimmed.endsWith(']')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed) && Array.isArray(parsed[0]) && typeof parsed[0][0] === 'string') {
+                return parsed[0][0];
+            }
+        } catch {
+            // Fall back to original text if JSON parsing fails
+        }
+    }
+    return text;
+};
+
 const extractMessageText = (message: Message): string => {
     const parts = message.content?.parts;
     if (Array.isArray(parts) && parts.length > 0) {
-        return parts
-            .filter((part): part is string => typeof part === 'string')
-            .join('\n')
-            .trim();
+        return unescapeNewlines(
+            parts
+                .filter((part): part is string => typeof part === 'string')
+                .map((part) => cleanGeminiEnvelope(part))
+                .join('\n')
+                .trim(),
+        );
     }
     if (typeof message.content?.content === 'string') {
-        return message.content.content.trim();
+        return unescapeNewlines(cleanGeminiEnvelope(message.content.content.trim()));
     }
     return '';
 };
@@ -627,8 +647,8 @@ export const parseTranslationToCommon = (data: unknown): CommonConversationExpor
     throw new Error('Input does not match a supported translation JSON shape.');
 };
 
-const mapTranslatorToId = (model: string): AITranslator => {
-    if (model === 'gemini-3-pro' || model === 'gemini-3.1-pro') {
+const mapTranslatorToId = (model: string): AITranslator | undefined => {
+    if (model === 'gemini-3-pro' || model === 'gemini-3.1-pro' || model === 'gemini-3.1-pro-extended') {
         return 901;
     }
 
@@ -648,7 +668,7 @@ const mapTranslatorToId = (model: string): AITranslator => {
         return 895;
     }
 
-    throw new Error(`Invalid model: ${model}`);
+    return undefined;
 };
 
 export type ConversationExcerptsValidation = {
